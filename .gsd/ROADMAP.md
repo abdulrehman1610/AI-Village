@@ -29,7 +29,12 @@ updated: 2026-11-23T23:39:00+05:00
 **Requirements:** REQ-01, REQ-02, REQ-03 (initial), NFR-01, NFR-04, NFR-05
 
 **Plans:**
-- [ ] TBD by `/plan 1`
+- [ ] Plan 1.1: Scaffold root config, Python 3.12 FastAPI pyproject, and Settings (Wave 1)
+- [ ] Plan 1.2: Scaffold Phaser 3 + TypeScript + Vite frontend and shared payload types (Wave 1)
+- [ ] Plan 1.3: Generate Tiled JSON village map/assets and implement WorldMap loader (Wave 2)
+- [ ] Plan 1.4: Implement custom heapq A* pathfinder and SimClock with unit tests (Wave 2)
+- [ ] Plan 1.5: Build async SimulationEngine, 4 seeded agents, REST endpoints, and WebSocket /ws (Wave 3)
+- [ ] Plan 1.6: Wire Phaser 3 VillageScene renderer, /ws client, HUD, and e2e verification (Wave 4)
 
 ---
 
@@ -77,7 +82,7 @@ updated: 2026-11-23T23:39:00+05:00
 
 | Phase | Status | Plans | Complete |
 |-------|--------|-------|----------|
-| 1 | 🔄 | 0/TBD | — |
+| 1 | 🔄 | 0/6 | — |
 | 2 | ⬜ | 0/TBD | — |
 | 3 | ⬜ | 0/TBD | — |
 | 4 | ⬜ | 0/TBD | — |

@@ -15,9 +15,9 @@ Formal requirements derived from `.gsd/SPEC.md` and `AI Village Product Requirem
 
 | ID | Requirement | Source | Phase | Status |
 |----|-------------|--------|-------|--------|
-| REQ-01 | **Tile-Based World & Phaser Rendering (F1)**: Render a 2D town tilemap in Phaser 3 from a Tiled JSON map with distinct collision layer and named locations (Cafe, Park, Market, Homes, etc.) and smooth agent sprite rendering. | SPEC F1 | 1 | Pending |
-| REQ-02 | **Custom A* Pathfinding (F2)**: Hand-written `heapq` A* search with Manhattan distance heuristic on a 4-way grid that routes agents between named locations while respecting wall collisions and tile occupancy rules. | SPEC F2 | 1 | Pending |
-| REQ-03 | **Agent Personas & World State (F3)**: Define 6–10 rich agent personas (id, name, age, job, traits, home location, starting goals) persisted in SQLite (`agents` table) and synchronized live over WebSocket `/ws`. | SPEC F3 | 1, 2 | Pending |
+| REQ-01 | **Tile-Based World & Phaser Rendering (F1)**: Render a 2D town tilemap in Phaser 3 from a Tiled JSON map with distinct collision layer and named locations (Cafe, Park, Market, Homes, etc.) and smooth agent sprite rendering. | SPEC F1 | 1 | Complete |
+| REQ-02 | **Custom A* Pathfinding (F2)**: Hand-written `heapq` A* search with Manhattan distance heuristic on a 4-way grid that routes agents between named locations while respecting wall collisions and tile occupancy rules. | SPEC F2 | 1 | Complete |
+| REQ-03 | **Agent Personas & World State (F3)**: Define 6–10 rich agent personas (id, name, age, job, traits, home location, starting goals) persisted in SQLite (`agents` table) and synchronized live over WebSocket `/ws`. | SPEC F3 | 1, 2 | In Progress |
 | REQ-04 | **Memory Stream Storage (F4)**: Persist agent memories (`observation`, `plan`, `conversation`, `reflection`) in SQLite (`memories` table) with created tick, last-access tick, importance (1–10), and embedding vector blob. | SPEC F4 | 2 | Pending |
 | REQ-05 | **Memory Retrieval Scoring (F5)**: Score and retrieve top-$k$ ($k=8$) memories using min-max normalized `w_r * recency + w_i * importance + w_v * relevance` with exponential recency decay (0.995 per simulated hour) and NumPy cosine similarity over `all-MiniLM-L6-v2` embeddings. | SPEC F5 | 2 | Pending |
 | REQ-06 | **Hierarchical Daily Planning (F6)**: Generate wake-up day plans (5–8 broad items) decomposed into hourly blocks and minute-level actions, with automatic replanning of the remaining day upon interruptions (events or conversations). | SPEC F6 | 3 | Pending |
@@ -62,9 +62,9 @@ Formal requirements derived from `.gsd/SPEC.md` and `AI Village Product Requirem
 
 | Requirement | Phase | Plans | Tests | Status |
 |-------------|-------|-------|-------|--------|
-| REQ-01 | 1 | TBD | TBD | Pending |
-| REQ-02 | 1 | TBD | TBD | Pending |
-| REQ-03 | 1, 2 | TBD | TBD | Pending |
+| REQ-01 | 1 | 1.2, 1.3, 1.6 | test_world.py, test_e2e_phase1.py | Complete |
+| REQ-02 | 1 | 1.4, 1.5 | test_astar.py, test_engine.py | Complete |
+| REQ-03 | 1, 2 | 1.5 | test_engine.py, test_api.py | In Progress |
 | REQ-04 | 2 | TBD | TBD | Pending |
 | REQ-05 | 2 | TBD | TBD | Pending |
 | REQ-06 | 3 | TBD | TBD | Pending |

@@ -6,13 +6,13 @@ updated: 2026-11-23T23:39:00+05:00
 
 # Roadmap
 
-> **Current Phase:** 1 - World, A* Navigation & Real-Time Sync
+> **Current Phase:** 2 - Memory Stream, Embeddings, Retrieval Scoring & LLM Gateway
 > **Status:** planning
 
 ## Must-Haves (from SPEC)
 
-- [ ] Tile-based village map built in Tiled JSON and rendered in Phaser 3 with named locations and collision layer
-- [ ] Hand-written A* pathfinding (`heapq`, Manhattan heuristic) navigating agents without wall clipping or tile overlap
+- [x] Tile-based village map built in Tiled JSON and rendered in Phaser 3 with named locations and collision layer
+- [x] Hand-written A* pathfinding (`heapq`, Manhattan heuristic) navigating agents without wall clipping or tile overlap
 - [ ] 6–10 autonomous agents with SQLite persistence, memory stream, local embeddings, and weighted retrieval scoring (`recency + importance + relevance`)
 - [ ] Single schema-enforcing LLM gateway with Pydantic v2 validation, retry, prompt cache, call budget, cost logging, Gemini Flash provider, and deterministic mock provider
 - [ ] Full agent cognitive loop: hierarchical daily planning (day → hour → minute), proximity conversations (≤6 turns + summary), god-mode event injection, and threshold-triggered reflections
@@ -24,22 +24,22 @@ updated: 2026-11-23T23:39:00+05:00
 ## Phases
 
 ### Phase 1: World, A* Navigation & Real-Time Sync
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 **Objective:** Scaffold the monorepo (`backend/` Python FastAPI + `frontend/` Phaser 3 TypeScript Vite), build the Tiled JSON village map with collision layer and named locations, implement custom `heapq` A* pathfinding and the async simulation tick clock/engine, and synchronize 3+ moving agents in real time over WebSocket `/ws` to Phaser 3.
 **Requirements:** REQ-01, REQ-02, REQ-03 (initial), NFR-01, NFR-04, NFR-05
 
 **Plans:**
-- [ ] Plan 1.1: Scaffold root config, Python 3.12 FastAPI pyproject, and Settings (Wave 1)
-- [ ] Plan 1.2: Scaffold Phaser 3 + TypeScript + Vite frontend and shared payload types (Wave 1)
-- [ ] Plan 1.3: Generate Tiled JSON village map/assets and implement WorldMap loader (Wave 2)
-- [ ] Plan 1.4: Implement custom heapq A* pathfinder and SimClock with unit tests (Wave 2)
-- [ ] Plan 1.5: Build async SimulationEngine, 4 seeded agents, REST endpoints, and WebSocket /ws (Wave 3)
-- [ ] Plan 1.6: Wire Phaser 3 VillageScene renderer, /ws client, HUD, and e2e verification (Wave 4)
+- [x] Plan 1.1: Scaffold root config, Python 3.12 FastAPI pyproject, and Settings (Wave 1)
+- [x] Plan 1.2: Scaffold Phaser 3 + TypeScript + Vite frontend and shared payload types (Wave 1)
+- [x] Plan 1.3: Generate Tiled JSON village map/assets and implement WorldMap loader (Wave 2)
+- [x] Plan 1.4: Implement custom heapq A* pathfinder and SimClock with unit tests (Wave 2)
+- [x] Plan 1.5: Build async SimulationEngine, 4 seeded agents, REST endpoints, and WebSocket /ws (Wave 3)
+- [x] Plan 1.6: Wire Phaser 3 VillageScene renderer, /ws client, HUD, and e2e verification (Wave 4)
 
 ---
 
 ### Phase 2: Memory Stream, Embeddings, Retrieval Scoring & LLM Gateway
-**Status:** ⬜ Not Started
+**Status:** 🔄 In Progress
 **Objective:** Implement the full SQLite schema (`SQLModel` + `aiosqlite` for all 7 tables), build the schema-enforcing LLM gateway (`gateway.py`, Pydantic schemas, prompt cache, call budget, cost logging, deterministic mock provider, and Gemini Flash provider), expand to 6–10 rich agent personas, and implement the memory stream with local embeddings (`all-MiniLM-L6-v2` + deterministic test embedding) and weighted retrieval scoring (`recency + importance + relevance`).
 **Depends on:** Phase 1
 **Requirements:** REQ-03, REQ-04, REQ-05, REQ-15, NFR-02, NFR-03
@@ -82,8 +82,8 @@ updated: 2026-11-23T23:39:00+05:00
 
 | Phase | Status | Plans | Complete |
 |-------|--------|-------|----------|
-| 1 | 🔄 | 0/6 | — |
-| 2 | ⬜ | 0/TBD | — |
+| 1 | ✅ | 6/6 | 100% |
+| 2 | 🔄 | 0/TBD | — |
 | 3 | ⬜ | 0/TBD | — |
 | 4 | ⬜ | 0/TBD | — |
 | 5 | ⬜ | 0/TBD | — |
@@ -95,8 +95,8 @@ updated: 2026-11-23T23:39:00+05:00
 
 | Phase | Started | Completed | Duration |
 |-------|---------|-----------|----------|
-| 1 | 2026-11-23 | — | — |
-| 2 | — | — | — |
+| 1 | 2026-11-23 | 2026-11-24 | ~50m |
+| 2 | 2026-11-24 | — | — |
 | 3 | — | — | — |
 | 4 | — | — | — |
 | 5 | — | — | — |

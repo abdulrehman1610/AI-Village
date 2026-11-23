@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>AI Village</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app">
+      <header id="hud">
+        <div class="hud-brand">
+          <span class="hud-title">AI Village</span>
+          <span id="ws-status" class="status-pill connecting">Connecting...</span>
+        </div>
+        <div class="hud-clock">
+          <span id="sim-time">Day 1 · 07:00</span>
+          <span id="sim-tick">Tick 0</span>
+        </div>
+        <div id="agents-bar" aria-label="Active agents"></div>
+      </header>
+      <main id="stage">
+        <div id="game-container"></div>
+      </main>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

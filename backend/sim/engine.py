@@ -161,6 +161,8 @@ class SimulationEngine:
         self.retriever = retriever
         self.llm_gateway = llm_gateway
         self._step_lock = asyncio.Lock()
+        self._stepping = False
+        self._pre_step_payload: TickPayload | None = None
         self._tick_callbacks: list[TickCallback] = []
         self._loop_task: asyncio.Task[None] | None = None
         self._stop_requested = False
@@ -243,8 +245,7 @@ class SimulationEngine:
         """Register an async callback invoked with each emitted TickPayload."""
         self._tick_callbacks.append(callback)
 
-    def build_tick_payload(self) -> TickPayload:
-        """Build a consistent TickPayload snapshot of current clock and agent states."""
+    def _build_live_tick_payload(self) -> TickPayload:
         return TickPayload(
             tick=self.clock.tick,
             sim_time=self.clock.sim_time_str,
@@ -253,6 +254,12 @@ class SimulationEngine:
             running=self.clock.running,
             agents=[agent.to_snapshot() for agent in self.agents.values()],
         )
+
+    def build_tick_payload(self) -> TickPayload:
+        """Build a consistent TickPayload snapshot of current clock and agent states."""
+        if self._stepping and self._pre_step_payload is not None:
+            return self._pre_step_payload
+        return self._build_live_tick_payload()
 
     def _advance_routine_target(self, agent: AgentEntity) -> None:
         """Select the next routine destination, skipping the agent's current anchor tile."""
@@ -381,13 +388,19 @@ class SimulationEngine:
     async def step_once(self) -> TickPayload:
         """Advance simulation state by one tick and notify registered async callbacks."""
         async with self._step_lock:
-            reserved_tiles: set[GridPos] = {(a.x, a.y) for a in self.agents.values()}
-            for agent_id in sorted(self.agents):
-                self._step_agent(self.agents[agent_id], reserved_tiles)
-            self.clock.advance()
-            payload = self.build_tick_payload()
-            if self.memory_store is not None:
-                await self.persist_tick_state()
+            self._pre_step_payload = self._build_live_tick_payload()
+            self._stepping = True
+            try:
+                reserved_tiles: set[GridPos] = {(a.x, a.y) for a in self.agents.values()}
+                for agent_id in sorted(self.agents):
+                    self._step_agent(self.agents[agent_id], reserved_tiles)
+                self.clock.advance()
+                payload = self._build_live_tick_payload()
+                if self.memory_store is not None:
+                    await self.persist_tick_state()
+            finally:
+                self._stepping = False
+                self._pre_step_payload = None
 
         for callback in list(self._tick_callbacks):
             try:

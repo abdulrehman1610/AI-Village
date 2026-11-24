@@ -7,6 +7,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -109,9 +110,9 @@ async def verify_live_server(proc: subprocess.Popen[bytes]) -> tuple[list[int], 
         if agents_resp.status_code != 200:
             raise RuntimeError(f"GET /agents returned HTTP {agents_resp.status_code}")
         agents_data = agents_resp.json()
-        if not isinstance(agents_data, list) or len(agents_data) != 4:
+        if not isinstance(agents_data, list) or len(agents_data) != 8:
             raise AssertionError(
-                f"Expected 4 seeded agents from GET /agents, got {len(agents_data)}"
+                f"Expected 8 seeded agents from GET /agents, got {len(agents_data)}"
             )
 
     observed_ticks: list[int] = []
@@ -134,8 +135,8 @@ async def verify_live_server(proc: subprocess.Popen[bytes]) -> tuple[list[int], 
             observed_ticks.append(tick)
 
             agents = payload.get("agents")
-            if not isinstance(agents, list) or len(agents) != 4:
-                raise AssertionError(f"Expected 4 agents per tick, got {agents!r}")
+            if not isinstance(agents, list) or len(agents) != 8:
+                raise AssertionError(f"Expected 8 agents per tick, got {agents!r}")
 
             coords_seen: set[tuple[int, int]] = set()
             for agent in agents:
@@ -164,38 +165,41 @@ def main() -> int:
     """Run all Phase 1 end-to-end verification checks and print summary."""
     verify_frontend_dist()
 
-    env = os.environ.copy()
-    env["SIM_TICK_SECONDS"] = "0.1"
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        db_path = Path(tmp_dir) / "verify_phase1_ws.db"
+        env = os.environ.copy()
+        env["SIM_TICK_SECONDS"] = "0.1"
+        env["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path.as_posix()}"
 
-    proc = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "app.main:app",
-            "--host",
-            HOST,
-            "--port",
-            str(PORT),
-        ],
-        cwd=str(BACKEND_DIR),
-        env=env,
-        stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT,
-    )
+        proc = subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "app.main:app",
+                "--host",
+                HOST,
+                "--port",
+                str(PORT),
+            ],
+            cwd=str(BACKEND_DIR),
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+        )
 
-    try:
-        observed_ticks, moved_agents = asyncio.run(verify_live_server(proc))
-    finally:
-        if proc.poll() is None:
-            proc.terminate()
-            try:
-                proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                proc.kill()
-                proc.wait(timeout=5)
-        if proc.stdout is not None:
-            proc.stdout.close()
+        try:
+            observed_ticks, moved_agents = asyncio.run(verify_live_server(proc))
+        finally:
+            if proc.poll() is None:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait(timeout=5)
+            if proc.stdout is not None:
+                proc.stdout.close()
 
     print(
         f"e2e_ws_ok ticks={observed_ticks} moved_agents={moved_agents}"

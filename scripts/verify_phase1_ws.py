@@ -119,10 +119,17 @@ async def verify_live_server(proc: subprocess.Popen[bytes]) -> tuple[list[int], 
     positions_by_agent: dict[str, set[tuple[int, int]]] = {}
 
     async with websockets.connect(WS_URL, open_timeout=5.0) as ws:
-        for _ in range(6):
+        for _ in range(60):
+            if len(observed_ticks) >= 6:
+                break
             raw_msg = await asyncio.wait_for(ws.recv(), timeout=5.0)
             payload = json.loads(raw_msg)
-            if not isinstance(payload, dict) or payload.get("type") != "tick":
+            if not isinstance(payload, dict):
+                raise AssertionError(f"Unexpected /ws message payload: {payload!r}")
+            msg_type = payload.get("type")
+            if msg_type in {"dialogue", "event"}:
+                continue
+            if msg_type != "tick":
                 raise AssertionError(f"Unexpected /ws message payload: {payload!r}")
 
             tick = payload.get("tick")
@@ -151,6 +158,11 @@ async def verify_live_server(proc: subprocess.Popen[bytes]) -> tuple[list[int], 
                 coords_seen.add(coord)
                 positions_by_agent.setdefault(agent_id, set()).add(coord)
 
+    if len(observed_ticks) < 6:
+        raise AssertionError(
+            f"Expected 6 tick payloads from /ws, received {len(observed_ticks)}"
+        )
+
     moved_agents = sum(1 for history in positions_by_agent.values() if len(history) > 1)
     if moved_agents < 3:
         raise AssertionError(
@@ -159,6 +171,26 @@ async def verify_live_server(proc: subprocess.Popen[bytes]) -> tuple[list[int], 
         )
 
     return observed_ticks, moved_agents
+
+
+def _terminate_process_tree(proc: subprocess.Popen[bytes]) -> None:
+    if proc.poll() is None:
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(proc.pid)],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                check=False,
+            )
+        else:
+            proc.terminate()
+        try:
+            proc.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait(timeout=5)
+    if proc.stdout is not None:
+        proc.stdout.close()
 
 
 def main() -> int:
@@ -191,15 +223,7 @@ def main() -> int:
         try:
             observed_ticks, moved_agents = asyncio.run(verify_live_server(proc))
         finally:
-            if proc.poll() is None:
-                proc.terminate()
-                try:
-                    proc.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    proc.kill()
-                    proc.wait(timeout=5)
-            if proc.stdout is not None:
-                proc.stdout.close()
+            _terminate_process_tree(proc)
 
     print(
         f"e2e_ws_ok ticks={observed_ticks} moved_agents={moved_agents}"

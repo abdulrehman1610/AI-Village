@@ -5,6 +5,7 @@ from __future__ import annotations
 import sqlite3
 from contextlib import closing
 from pathlib import Path
+from typing import Any
 
 from fastapi.testclient import TestClient
 
@@ -102,8 +103,17 @@ def test_websocket_streams_advancing_ticks_and_moving_agents(tmp_path: Path) -> 
         assert app.state.llm_gateway is not None
 
         with client.websocket_connect("/ws") as ws:
-            msg1 = ws.receive_json()
-            msg2 = ws.receive_json()
+            ticks: list[dict[str, Any]] = []
+            for _ in range(25):
+                frame = ws.receive_json()
+                frame_type = frame.get("type")
+                assert frame_type in {"tick", "dialogue", "event"}
+                if frame_type == "tick":
+                    ticks.append(frame)
+                    if len(ticks) == 2:
+                        break
+            assert len(ticks) == 2
+            msg1, msg2 = ticks
             assert msg1["type"] == "tick"
             assert msg2["type"] == "tick"
             assert msg2["tick"] > msg1["tick"]

@@ -180,7 +180,14 @@ async def test_engine_persists_agents_memories_and_sim_state() -> None:
             assert record.y == agent.y
             assert record.current_action == agent.current_action
             assert record.home_location == agent.home_location
-            assert json.loads(record.current_plan_json) == agent.routine
+            assert record.current_plan_json == engine.get_serialized_plan_json(agent_id)
+            parsed_plan = json.loads(record.current_plan_json)
+            assert isinstance(parsed_plan, list)
+            assert 5 <= len(parsed_plan) <= 8
+            for block in parsed_plan:
+                assert {"start_hour", "end_hour", "location", "description"} <= set(
+                    block.keys()
+                )
             assert json.loads(record.persona_json)["id"] == agent_id
 
         all_memories = []

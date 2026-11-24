@@ -44,6 +44,13 @@ updated: 2026-11-23T23:39:00+05:00
 **Depends on:** Phase 1
 **Requirements:** REQ-03, REQ-04, REQ-05, REQ-15, NFR-02, NFR-03
 
+**Plans:**
+- [ ] Plan 2.1: Install CPU-only Phase 2 dependencies, extend Settings/.env.example, implement async Database and all 7 SQLModel tables (Wave 1)
+- [ ] Plan 2.2: Implement Pydantic v2 LLM schemas, LLMProvider protocol, MockProvider, GeminiProvider, and LLMGateway (Wave 2)
+- [ ] Plan 2.3: Implement DeterministicEmbeddingProvider, SentenceTransformerEmbeddingProvider, MemoryStore, and weighted MemoryRetriever (Wave 2)
+- [ ] Plan 2.4: Define 8 rich AgentPersona villagers, expand sprites.png to 8 rows (128x256), and add frame wrapping in VillageScene.ts (Wave 2)
+- [ ] Plan 2.5: Wire 8 personas, Database, MemoryStore, MemoryRetriever, and LLMGateway into SimulationEngine and FastAPI lifespan (Wave 3)
+
 ---
 
 ### Phase 3: Daily Planning, Conversations & Event Injection (P0 MVP)
@@ -83,7 +90,7 @@ updated: 2026-11-23T23:39:00+05:00
 | Phase | Status | Plans | Complete |
 |-------|--------|-------|----------|
 | 1 | ✅ | 6/6 | 100% |
-| 2 | 🔄 | 0/TBD | — |
+| 2 | 🔄 | 0/5 | — |
 | 3 | ⬜ | 0/TBD | — |
 | 4 | ⬜ | 0/TBD | — |
 | 5 | ⬜ | 0/TBD | — |

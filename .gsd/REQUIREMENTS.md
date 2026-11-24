@@ -17,9 +17,9 @@ Formal requirements derived from `.gsd/SPEC.md` and `AI Village Product Requirem
 |----|-------------|--------|-------|--------|
 | REQ-01 | **Tile-Based World & Phaser Rendering (F1)**: Render a 2D town tilemap in Phaser 3 from a Tiled JSON map with distinct collision layer and named locations (Cafe, Park, Market, Homes, etc.) and smooth agent sprite rendering. | SPEC F1 | 1 | Complete |
 | REQ-02 | **Custom A* Pathfinding (F2)**: Hand-written `heapq` A* search with Manhattan distance heuristic on a 4-way grid that routes agents between named locations while respecting wall collisions and tile occupancy rules. | SPEC F2 | 1 | Complete |
-| REQ-03 | **Agent Personas & World State (F3)**: Define 6–10 rich agent personas (id, name, age, job, traits, home location, starting goals) persisted in SQLite (`agents` table) and synchronized live over WebSocket `/ws`. | SPEC F3 | 1, 2 | In Progress |
-| REQ-04 | **Memory Stream Storage (F4)**: Persist agent memories (`observation`, `plan`, `conversation`, `reflection`) in SQLite (`memories` table) with created tick, last-access tick, importance (1–10), and embedding vector blob. | SPEC F4 | 2 | Pending |
-| REQ-05 | **Memory Retrieval Scoring (F5)**: Score and retrieve top-$k$ ($k=8$) memories using min-max normalized `w_r * recency + w_i * importance + w_v * relevance` with exponential recency decay (0.995 per simulated hour) and NumPy cosine similarity over `all-MiniLM-L6-v2` embeddings. | SPEC F5 | 2 | Pending |
+| REQ-03 | **Agent Personas & World State (F3)**: Define 6–10 rich agent personas (id, name, age, job, traits, home location, starting goals) persisted in SQLite (`agents` table) and synchronized live over WebSocket `/ws`. | SPEC F3 | 1, 2 | Complete |
+| REQ-04 | **Memory Stream Storage (F4)**: Persist agent memories (`observation`, `plan`, `conversation`, `reflection`) in SQLite (`memories` table) with created tick, last-access tick, importance (1–10), and embedding vector blob. | SPEC F4 | 2 | Complete |
+| REQ-05 | **Memory Retrieval Scoring (F5)**: Score and retrieve top-$k$ ($k=8$) memories using min-max normalized `w_r * recency + w_i * importance + w_v * relevance` with exponential recency decay (0.995 per simulated hour) and NumPy cosine similarity over `all-MiniLM-L6-v2` embeddings. | SPEC F5 | 2 | Complete |
 | REQ-06 | **Hierarchical Daily Planning (F6)**: Generate wake-up day plans (5–8 broad items) decomposed into hourly blocks and minute-level actions, with automatic replanning of the remaining day upon interruptions (events or conversations). | SPEC F6 | 3 | Pending |
 | REQ-07 | **Agent-to-Agent Conversation (F7)**: Trigger proximity dialogues (within 2 tiles, both free, cooldown elapsed) where LLM decides initiation, generates up to 6 turns grounded in retrieved memories, broadcasts `dialogue` WS messages, and stores a conversation summary for both agents. | SPEC F7 | 3 | Pending |
 | REQ-08 | **God-Mode Event Injection (F8)**: Provide `POST /events` and a frontend UI control allowing viewers to inject free-text events at an optional location, creating observations for nearby agents and broadcasting `event` WS messages. | SPEC F8 | 3 | Pending |
@@ -29,7 +29,7 @@ Formal requirements derived from `.gsd/SPEC.md` and `AI Village Product Requirem
 | REQ-12 | **Simulation Time Controls (F12)**: Implement `POST /sim/start`, `POST /sim/pause`, and `POST /sim/speed` (1x, 4x, 16x) and wire frontend playback controls to dynamically adjust the async simulation clock. | SPEC F12 | 4 | Pending |
 | REQ-13 | **Event Log & Day Replay (F13)**: Write structured simulation events to a JSONL event log per simulated day, expose `GET /replay/{day}`, and provide a frontend replay mode to scrub/rewatch a recorded day. | SPEC F13 | 5 | Pending |
 | REQ-14 | **Cost & Token Dashboard (F14)**: Expose `GET /metrics` and WS `metrics` payloads aggregating calls, tokens in/out, latency, cache hits, and estimated cost from `llm_calls`, rendered via Chart.js in the frontend. | SPEC F14 | 5 | Pending |
-| REQ-15 | **Schema-Enforced LLM Gateway**: Route all LLM calls through `backend/llm/gateway.py` with Pydantic v2 JSON validation, 1-retry repair, prompt caching, batched importance rating, hard budget enforcement, Gemini Flash provider, and deterministic mock provider. | SPEC Goal 4 | 2 | Pending |
+| REQ-15 | **Schema-Enforced LLM Gateway**: Route all LLM calls through `backend/llm/gateway.py` with Pydantic v2 JSON validation, 1-retry repair, prompt caching, batched importance rating, hard budget enforcement, Gemini Flash provider, and deterministic mock provider. | SPEC Goal 4 | 2 | Complete |
 | REQ-16 | **Packaging, CI & Academic Deliverables**: Provide `docker-compose.yml`, GitHub Actions CI (`ruff`, `mypy`, `pytest`), `README.md` (<5 commands setup + architecture diagram), `AGENTS.md`, and `docs/report.md` (AI Lab Report). | SPEC Goal 3 | 5, 6 | Pending |
 
 ---
@@ -64,9 +64,9 @@ Formal requirements derived from `.gsd/SPEC.md` and `AI Village Product Requirem
 |-------------|-------|-------|-------|--------|
 | REQ-01 | 1 | 1.2, 1.3, 1.6 | test_world.py, test_e2e_phase1.py | Complete |
 | REQ-02 | 1 | 1.4, 1.5 | test_astar.py, test_engine.py | Complete |
-| REQ-03 | 1, 2 | 1.5 | test_engine.py, test_api.py | In Progress |
-| REQ-04 | 2 | TBD | TBD | Pending |
-| REQ-05 | 2 | TBD | TBD | Pending |
+| REQ-03 | 1, 2 | 1.5, 2.1, 2.4, 2.5 | test_personas.py, test_engine.py, test_api_ws.py | Complete |
+| REQ-04 | 2 | 2.1, 2.3, 2.5 | test_db_models.py, test_memory_store.py | Complete |
+| REQ-05 | 2 | 2.3, 2.5 | test_embeddings.py, test_retrieval.py | Complete |
 | REQ-06 | 3 | TBD | TBD | Pending |
 | REQ-07 | 3 | TBD | TBD | Pending |
 | REQ-08 | 3 | TBD | TBD | Pending |
@@ -76,5 +76,5 @@ Formal requirements derived from `.gsd/SPEC.md` and `AI Village Product Requirem
 | REQ-12 | 4 | TBD | TBD | Pending |
 | REQ-13 | 5 | TBD | TBD | Pending |
 | REQ-14 | 5 | TBD | TBD | Pending |
-| REQ-15 | 2 | TBD | TBD | Pending |
+| REQ-15 | 2 | 2.2, 2.5 | test_llm_gateway.py, test_phase2_integration.py | Complete |
 | REQ-16 | 5, 6 | TBD | TBD | Pending |

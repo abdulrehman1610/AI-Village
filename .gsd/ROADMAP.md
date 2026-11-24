@@ -6,15 +6,15 @@ updated: 2026-11-23T23:39:00+05:00
 
 # Roadmap
 
-> **Current Phase:** 2 - Memory Stream, Embeddings, Retrieval Scoring & LLM Gateway
+> **Current Phase:** 3 - Daily Planning, Conversations & Event Injection (P0 MVP)
 > **Status:** planning
 
 ## Must-Haves (from SPEC)
 
 - [x] Tile-based village map built in Tiled JSON and rendered in Phaser 3 with named locations and collision layer
 - [x] Hand-written A* pathfinding (`heapq`, Manhattan heuristic) navigating agents without wall clipping or tile overlap
-- [ ] 6–10 autonomous agents with SQLite persistence, memory stream, local embeddings, and weighted retrieval scoring (`recency + importance + relevance`)
-- [ ] Single schema-enforcing LLM gateway with Pydantic v2 validation, retry, prompt cache, call budget, cost logging, Gemini Flash provider, and deterministic mock provider
+- [x] 6–10 autonomous agents with SQLite persistence, memory stream, local embeddings, and weighted retrieval scoring (`recency + importance + relevance`)
+- [x] Single schema-enforcing LLM gateway with Pydantic v2 validation, retry, prompt cache, call budget, cost logging, Gemini Flash provider, and deterministic mock provider
 - [ ] Full agent cognitive loop: hierarchical daily planning (day → hour → minute), proximity conversations (≤6 turns + summary), god-mode event injection, and threshold-triggered reflections
 - [ ] Interactive UI panels: Agent Inspector, Time Controls (Pause/Play/1x/4x/16x), Cytoscape.js Relationship Graph, Chart.js Cost/Token Dashboard, and JSONL Day Replay
 - [ ] 100-tick deterministic integration test, passing `ruff` + `mypy` + `pytest` CI pipeline, Docker setup, README, and AI Lab Report
@@ -39,22 +39,22 @@ updated: 2026-11-23T23:39:00+05:00
 ---
 
 ### Phase 2: Memory Stream, Embeddings, Retrieval Scoring & LLM Gateway
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 **Objective:** Implement the full SQLite schema (`SQLModel` + `aiosqlite` for all 7 tables), build the schema-enforcing LLM gateway (`gateway.py`, Pydantic schemas, prompt cache, call budget, cost logging, deterministic mock provider, and Gemini Flash provider), expand to 6–10 rich agent personas, and implement the memory stream with local embeddings (`all-MiniLM-L6-v2` + deterministic test embedding) and weighted retrieval scoring (`recency + importance + relevance`).
 **Depends on:** Phase 1
 **Requirements:** REQ-03, REQ-04, REQ-05, REQ-15, NFR-02, NFR-03
 
 **Plans:**
-- [ ] Plan 2.1: Install CPU-only Phase 2 dependencies, extend Settings/.env.example, implement async Database and all 7 SQLModel tables (Wave 1)
-- [ ] Plan 2.2: Implement Pydantic v2 LLM schemas, LLMProvider protocol, MockProvider, GeminiProvider, and LLMGateway (Wave 2)
-- [ ] Plan 2.3: Implement DeterministicEmbeddingProvider, SentenceTransformerEmbeddingProvider, MemoryStore, and weighted MemoryRetriever (Wave 2)
-- [ ] Plan 2.4: Define 8 rich AgentPersona villagers, expand sprites.png to 8 rows (128x256), and add frame wrapping in VillageScene.ts (Wave 2)
-- [ ] Plan 2.5: Wire 8 personas, Database, MemoryStore, MemoryRetriever, and LLMGateway into SimulationEngine and FastAPI lifespan (Wave 3)
+- [x] Plan 2.1: Install CPU-only Phase 2 dependencies, extend Settings/.env.example, implement async Database and all 7 SQLModel tables (Wave 1)
+- [x] Plan 2.2: Implement Pydantic v2 LLM schemas, LLMProvider protocol, MockProvider, GeminiProvider, and LLMGateway (Wave 2)
+- [x] Plan 2.3: Implement DeterministicEmbeddingProvider, SentenceTransformerEmbeddingProvider, MemoryStore, and weighted MemoryRetriever (Wave 2)
+- [x] Plan 2.4: Define 8 rich AgentPersona villagers, expand sprites.png to 8 rows (128x256), and add frame wrapping in VillageScene.ts (Wave 2)
+- [x] Plan 2.5: Wire 8 personas, Database, MemoryStore, MemoryRetriever, and LLMGateway into SimulationEngine and FastAPI lifespan (Wave 3)
 
 ---
 
 ### Phase 3: Daily Planning, Conversations & Event Injection (P0 MVP)
-**Status:** ⬜ Not Started
+**Status:** 🔄 In Progress
 **Objective:** Wire the complete agent cognitive loop (Perceive → Remember → Decide → Act) with hierarchical planning (wake-up day plan → hourly blocks → minute actions + replanning on interruption), proximity-triggered turn-by-turn agent conversations (up to 6 turns + memory summarization + WS `dialogue` broadcast), and god-mode event injection (`POST /events` + frontend UI bar) that delivers observations to nearby agents and spreads rumors.
 **Depends on:** Phase 2
 **Requirements:** REQ-06, REQ-07, REQ-08, NFR-05
@@ -90,8 +90,8 @@ updated: 2026-11-23T23:39:00+05:00
 | Phase | Status | Plans | Complete |
 |-------|--------|-------|----------|
 | 1 | ✅ | 6/6 | 100% |
-| 2 | 🔄 | 0/5 | — |
-| 3 | ⬜ | 0/TBD | — |
+| 2 | ✅ | 5/5 | 100% |
+| 3 | 🔄 | 0/TBD | — |
 | 4 | ⬜ | 0/TBD | — |
 | 5 | ⬜ | 0/TBD | — |
 | 6 | ⬜ | 0/TBD | — |
@@ -103,8 +103,8 @@ updated: 2026-11-23T23:39:00+05:00
 | Phase | Started | Completed | Duration |
 |-------|---------|-----------|----------|
 | 1 | 2026-11-23 | 2026-11-24 | ~50m |
-| 2 | 2026-11-24 | — | — |
-| 3 | — | — | — |
+| 2 | 2026-11-24 | 2026-11-24 | ~70m |
+| 3 | 2026-11-24 | — | — |
 | 4 | — | — | — |
 | 5 | — | — | — |
 | 6 | — | — | — |

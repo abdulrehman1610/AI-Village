@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
+import json
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Any, Literal
 
 from sqlalchemy import update
 from sqlmodel import col, or_, select
@@ -11,6 +12,7 @@ from app.db import Database
 from memory.embeddings import EmbeddingService, pack_embedding
 from memory.models import (
     AgentRecord,
+    ConversationRecord,
     EventRecord,
     MemoryRecord,
     RelationshipRecord,
@@ -309,3 +311,91 @@ class MemoryStore:
         async with self.db.session() as session:
             result = await session.exec(stmt)
             return list(result.all())
+
+    async def get_relationship(
+        self,
+        agent_a: str,
+        agent_b: str,
+    ) -> RelationshipRecord | None:
+        """Fetch a pairwise relationship record symmetrically regardless of ID order."""
+        async with self.db.session() as session:
+            rel = await session.get(RelationshipRecord, (agent_a, agent_b))
+            if rel is None and agent_a != agent_b:
+                rel = await session.get(RelationshipRecord, (agent_b, agent_a))
+            return rel
+
+    async def list_events(
+        self,
+        *,
+        since_tick: int | None = None,
+        limit: int | None = None,
+    ) -> list[EventRecord]:
+        """List world or god-mode events ordered newest-first by tick and id."""
+        if limit is not None and limit <= 0:
+            return []
+
+        stmt = select(EventRecord)
+        if since_tick is not None:
+            stmt = stmt.where(col(EventRecord.tick) >= since_tick)
+        stmt = stmt.order_by(col(EventRecord.tick).desc(), col(EventRecord.id).desc())
+        if limit is not None:
+            stmt = stmt.limit(limit)
+
+        async with self.db.session() as session:
+            result = await session.exec(stmt)
+            return list(result.all())
+
+    async def add_conversation(
+        self,
+        *,
+        tick_start: int,
+        participants: Sequence[str],
+        turns: Sequence[Mapping[str, Any]],
+        summary: str,
+    ) -> ConversationRecord:
+        """Persist a completed multi-turn agent conversation transcript and summary."""
+        record = ConversationRecord(
+            tick_start=tick_start,
+            participants=json.dumps(list(participants)),
+            transcript_json=json.dumps([dict(turn) for turn in turns]),
+            summary=summary,
+        )
+        async with self.db.session() as session:
+            session.add(record)
+            await session.commit()
+        return record
+
+    async def list_conversations(
+        self,
+        *,
+        participant_id: str | None = None,
+        limit: int | None = None,
+    ) -> list[ConversationRecord]:
+        """List conversations newest-first, optionally filtered to an exact participant."""
+        if limit is not None and limit <= 0:
+            return []
+
+        stmt = select(ConversationRecord).order_by(
+            col(ConversationRecord.tick_start).desc(),
+            col(ConversationRecord.id).desc(),
+        )
+        if participant_id is None and limit is not None:
+            stmt = stmt.limit(limit)
+
+        async with self.db.session() as session:
+            rows = list((await session.exec(stmt)).all())
+
+        if participant_id is None:
+            return rows
+
+        filtered: list[ConversationRecord] = []
+        for row in rows:
+            try:
+                participants = json.loads(row.participants)
+            except json.JSONDecodeError:
+                continue
+            if isinstance(participants, list) and participant_id in participants:
+                filtered.append(row)
+                if limit is not None and len(filtered) >= limit:
+                    break
+        return filtered

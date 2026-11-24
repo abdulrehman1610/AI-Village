@@ -10,6 +10,10 @@ from llm.prompts.planning import (
     build_hourly_action_prompt,
     build_replan_prompt,
 )
+from llm.prompts.reflection import (
+    build_reflection_insights_prompt,
+    build_salient_questions_prompt,
+)
 
 __all__ = [
     "build_conversation_decision_prompt",
@@ -17,5 +21,7 @@ __all__ = [
     "build_daily_plan_prompt",
     "build_dialogue_turn_prompt",
     "build_hourly_action_prompt",
+    "build_reflection_insights_prompt",
     "build_replan_prompt",
+    "build_salient_questions_prompt",
 ]

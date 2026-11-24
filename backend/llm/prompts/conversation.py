@@ -89,17 +89,29 @@ def build_conversation_summary_prompt(
     location: str,
     sim_time: str,
     transcript: Sequence[tuple[str, str]],
+    existing_affinity: float | None = None,
+    existing_notes: str = "",
 ) -> str:
     """Build a post-dialogue summarization and relationship affinity update prompt."""
     transcript_block = _format_transcript(transcript)
+    cleaned_notes = existing_notes.strip()
+    prior_block = ""
+    if existing_affinity is not None or cleaned_notes:
+        affinity_text = f"{existing_affinity:.2f}" if existing_affinity is not None else "unknown"
+        notes_or_none = cleaned_notes or "(none)"
+        prior_block = f"Prior relationship: affinity={affinity_text}, notes={notes_or_none}\n"
+
     return (
         f"Summarize the exchange between {speaker_a.name} and {speaker_b.name}.\n"
         f"Participants: {speaker_a.name} and {speaker_b.name}\n"
         f"Location: {location}\n"
         f"Sim time: {sim_time}\n"
+        f"{prior_block}"
         "Transcript:\n"
         f"{transcript_block}\n\n"
         "Instructions:\n"
         "- Write a concise factual summary preserving key topics, names, and locations mentioned.\n"
-        "- Estimate affinity_delta between -1.0 and 1.0 and provide a brief relationship_note."
+        "- Estimate affinity_delta between -1.0 and 1.0 and provide a brief relationship_note.\n"
+        "- Provide concise single-word or short speaker_a_mood and speaker_b_mood labels "
+        "reflecting each participant's mood after the exchange."
     )

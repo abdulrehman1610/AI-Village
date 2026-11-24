@@ -88,6 +88,8 @@ class ConversationSummaryResponse(BaseModel):
     summary: str = Field(min_length=1)
     affinity_delta: float = Field(default=0.0, ge=-1.0, le=1.0)
     relationship_note: str = ""
+    speaker_a_mood: str = ""
+    speaker_b_mood: str = ""
 
 
 class SalientQuestionsResponse(BaseModel):
@@ -112,4 +114,5 @@ class ReflectionResponse(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    insights: list[ReflectionInsight] = Field(min_length=1)
+    insights: list[ReflectionInsight] = Field(min_length=1, max_length=5)
+    mood: str = ""

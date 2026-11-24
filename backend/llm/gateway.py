@@ -22,7 +22,9 @@ from llm.schemas import (
     DialogueTurnResponse,
     HourlyActionPlanResponse,
     ImportanceBatchResponse,
+    ReflectionResponse,
     ReplanResponse,
+    SalientQuestionsResponse,
 )
 from memory.models import LLMCallRecord
 
@@ -383,6 +385,42 @@ class LLMGateway:
             prompt,
             ConversationSummaryResponse,
             purpose="conversation_summary",
+            tick=tick,
+            agent_id=agent_id,
+            system_instruction=system_instruction,
+        )
+
+    async def generate_salient_questions(
+        self,
+        prompt: str,
+        *,
+        tick: int,
+        agent_id: str,
+        system_instruction: str | None = None,
+    ) -> SalientQuestionsResponse:
+        """Generate 3 salient reflection questions routed to the planning model."""
+        return await self.generate(
+            prompt,
+            SalientQuestionsResponse,
+            purpose="salient_questions",
+            tick=tick,
+            agent_id=agent_id,
+            system_instruction=system_instruction,
+        )
+
+    async def generate_reflections(
+        self,
+        prompt: str,
+        *,
+        tick: int,
+        agent_id: str,
+        system_instruction: str | None = None,
+    ) -> ReflectionResponse:
+        """Synthesize cited reflection insights and mood routed to the planning model."""
+        return await self.generate(
+            prompt,
+            ReflectionResponse,
+            purpose="reflection",
             tick=tick,
             agent_id=agent_id,
             system_instruction=system_instruction,

@@ -47,6 +47,7 @@ class _FakeParticipant:
     conversation_hold_ticks: int = 0
     needs_replan: bool = False
     replan_reason: str = ""
+    mood: str = "calm"
 
 
 class _ScriptedProvider:
@@ -54,6 +55,7 @@ class _ScriptedProvider:
 
     def __init__(self, responses: list[BaseModel]) -> None:
         self._responses = list(responses)
+        self.prompts_seen: list[tuple[type[BaseModel], str]] = []
 
     @property
     def name(self) -> str:
@@ -69,7 +71,8 @@ class _ScriptedProvider:
         temperature: float = 0.2,
         seed: int | None = None,
     ) -> ProviderResult:
-        del prompt, system_instruction, model_override, temperature, seed
+        del system_instruction, model_override, temperature, seed
+        self.prompts_seen.append((response_model, prompt))
         if not self._responses:
             raise AssertionError("ScriptedProvider ran out of responses")
         item = self._responses.pop(0)
@@ -323,6 +326,9 @@ async def test_turn_cap_empty_opening_fallback_and_affinity_clamping() -> None:
         assert liam.conversation_hold_ticks == 4
         assert maya.needs_replan is False
         assert liam.needs_replan is False
+        assert outcome.moods == ("warm", "warm")
+        assert maya.mood == "warm"
+        assert liam.mood == "warm"
 
         rel = await store.get_relationship("maya", "liam")
         assert rel is not None
@@ -509,5 +515,108 @@ async def test_completed_conversation_and_two_hop_rumor_propagation() -> None:
         assert elena.needs_replan is True
         assert len(await store.list_conversations()) == 2
         assert await store.get_relationship("liam", "elena") is not None
+    finally:
+        await db.dispose()
+
+
+async def test_prior_relationship_context_canonical_key_and_mood_updates() -> None:
+    scripted = _ScriptedProvider(
+        [
+            ConversationDecisionResponse(
+                initiate=True,
+                reason="Check on baking collaboration",
+                opening_line="Did that sourdough starter rise well today?",
+            ),
+            DialogueTurnResponse(
+                utterance="Yes, the crust turned out crisp and golden!",
+                continue_dialogue=False,
+            ),
+            ConversationSummaryResponse(
+                summary="Maya and Liam celebrated the successful sourdough batch.",
+                affinity_delta=0.2,
+                relationship_note="Trusted baking and cafe collaborators",
+                speaker_a_mood="delighted",
+                speaker_b_mood="inspired",
+            ),
+            ImportanceBatchResponse(ratings=[4]),
+            ConversationDecisionResponse(
+                initiate=True,
+                reason="Report sudden storm warning",
+                opening_line="A storm warning just reached the Market.",
+            ),
+            DialogueTurnResponse(
+                utterance="Let's secure the Bakery shutters right away.",
+                continue_dialogue=False,
+            ),
+            ConversationSummaryResponse(
+                summary="Maya and Liam prepared for an incoming storm.",
+                affinity_delta=0.05,
+                relationship_note="Steady partners during urgent weather",
+                speaker_a_mood="",
+                speaker_b_mood="",
+            ),
+            ImportanceBatchResponse(ratings=[8]),
+        ]
+    )
+    db, store, retriever, gateway, world, agents = await _setup_context(provider=scripted)
+    try:
+        await store.upsert_relationship(
+            "maya",
+            "liam",
+            affinity=0.45,
+            notes="Shared sourdough starter tips",
+            last_interaction_tick=5,
+        )
+        manager = ConversationManager(
+            llm_gateway=gateway,
+            memory_store=store,
+            retriever=retriever,
+            conversation_cooldown_ticks=0,
+        )
+        maya = agents["maya"]
+        liam = agents["liam"]
+
+        outcome1 = await manager.run_conversation(
+            maya,
+            liam,
+            tick=30,
+            sim_time="Day 1 06:30",
+            world=world,
+        )
+        assert outcome1 is not None
+        assert outcome1.moods == ("delighted", "inspired")
+        assert maya.mood == "delighted"
+        assert liam.mood == "inspired"
+
+        summary_prompts = [
+            prompt
+            for model, prompt in scripted.prompts_seen
+            if model is ConversationSummaryResponse
+        ]
+        assert len(summary_prompts) == 1
+        assert (
+            "Prior relationship: affinity=0.45, notes=Shared sourdough starter tips"
+            in summary_prompts[0]
+        )
+
+        rel = await store.get_relationship("maya", "liam")
+        assert rel is not None
+        assert (rel.agent_a, rel.agent_b) == ("liam", "maya")
+        assert rel.affinity == pytest.approx(0.65)
+        assert rel.notes == "Trusted baking and cafe collaborators"
+
+        # High-importance exchange with blank LLM moods falls back to "concerned".
+        outcome2 = await manager.run_conversation(
+            maya,
+            liam,
+            tick=45,
+            sim_time="Day 1 06:45",
+            world=world,
+        )
+        assert outcome2 is not None
+        assert outcome2.importance == 8
+        assert outcome2.moods == ("concerned", "concerned")
+        assert maya.mood == "concerned"
+        assert liam.mood == "concerned"
     finally:
         await db.dispose()

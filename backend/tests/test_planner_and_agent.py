@@ -10,7 +10,13 @@ import pytest_asyncio
 
 from agents.agent import AgentBrain, PendingObservation
 from agents.personas import AgentPersona, get_persona
-from agents.planner import AgentPlanState, DailyPlanner, canonicalize_location
+from agents.planner import (
+    PLAN_MEMORY_IMPORTANCE,
+    REPLAN_MEMORY_IMPORTANCE,
+    AgentPlanState,
+    DailyPlanner,
+    canonicalize_location,
+)
 from app.config import get_settings
 from app.db import Database
 from llm.gateway import LLMGateway
@@ -482,3 +488,95 @@ async def test_agent_brain_decide_lifecycle_and_day2_rollover(deps: _RuntimeDeps
     assert target4 in deps.world.locations
     assert replanned4 is False
     assert brain.plan_state.day == 2
+
+
+async def test_agent_brain_accumulates_plan_importance_and_resets_reflection_counter(
+    deps: _RuntimeDeps,
+) -> None:
+    brain = AgentBrain(
+        agent_id=deps.persona.id,
+        persona=deps.persona,
+        reflection_threshold=15,
+    )
+    assert brain.mood == "calm"
+    assert brain.last_reflection_tick == -1
+    assert brain.should_reflect() is False
+
+    # Initial daily plan adds PLAN_MEMORY_IMPORTANCE when memory_store is attached.
+    clock = SimClock(tick=0)
+    await brain.decide(
+        clock=clock,
+        world=deps.world,
+        planner=deps.planner,
+        llm_gateway=deps.gateway,
+        retriever=deps.retriever,
+        memory_store=deps.store,
+        needs_replan=False,
+        replan_reason="",
+        is_conversing=False,
+        dwell_ticks=4,
+    )
+    assert brain.accumulated_importance == PLAN_MEMORY_IMPORTANCE
+    assert brain.should_reflect() is False
+
+    # Cached minute step tick adds zero importance.
+    clock.advance(1)
+    await brain.decide(
+        clock=clock,
+        world=deps.world,
+        planner=deps.planner,
+        llm_gateway=deps.gateway,
+        retriever=deps.retriever,
+        memory_store=deps.store,
+        needs_replan=False,
+        replan_reason="",
+        is_conversing=False,
+        dwell_ticks=4,
+    )
+    assert brain.accumulated_importance == PLAN_MEMORY_IMPORTANCE
+
+    # Interruption replanning adds REPLAN_MEMORY_IMPORTANCE when memory_store is attached.
+    clock.advance(60)
+    _, _, replanned = await brain.decide(
+        clock=clock,
+        world=deps.world,
+        planner=deps.planner,
+        llm_gateway=deps.gateway,
+        retriever=deps.retriever,
+        memory_store=deps.store,
+        needs_replan=True,
+        replan_reason="Surprise market announcement",
+        is_conversing=False,
+        dwell_ticks=4,
+    )
+    assert replanned is True
+    assert brain.accumulated_importance == PLAN_MEMORY_IMPORTANCE + REPLAN_MEMORY_IMPORTANCE
+    assert brain.should_reflect() is False
+
+    brain.add_importance(-5)
+    assert brain.accumulated_importance == PLAN_MEMORY_IMPORTANCE + REPLAN_MEMORY_IMPORTANCE
+
+    brain.add_importance(15 - brain.accumulated_importance)
+    assert brain.accumulated_importance == 15
+    assert brain.should_reflect() is True
+
+    brain.reset_reflection_counter(tick=clock.tick)
+    assert brain.accumulated_importance == 0
+    assert brain.last_reflection_tick == clock.tick
+    assert brain.should_reflect() is False
+
+    # Without a memory_store, plan generation does not credit persisted plan importance.
+    ephemeral_brain = AgentBrain(agent_id=deps.persona.id, persona=deps.persona)
+    await ephemeral_brain.decide(
+        clock=SimClock(tick=0),
+        world=deps.world,
+        planner=deps.planner,
+        llm_gateway=deps.gateway,
+        retriever=deps.retriever,
+        memory_store=None,
+        needs_replan=False,
+        replan_reason="",
+        is_conversing=False,
+        dwell_ticks=4,
+    )
+    assert ephemeral_brain.accumulated_importance == 0

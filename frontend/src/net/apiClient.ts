@@ -1,10 +1,17 @@
 /// <reference types="vite/client" />
 
-import type {
-  InjectEventRequest,
-  InjectEventResponse,
-  NamedLocationInfo,
-  WorldInfo,
+import {
+  isAgentDetail,
+  isRelationshipsResponse,
+  isSimControlResponse,
+  type AgentDetail,
+  type InjectEventRequest,
+  type InjectEventResponse,
+  type NamedLocationInfo,
+  type RelationshipsResponse,
+  type SimControlResponse,
+  type SimSpeed,
+  type WorldInfo,
 } from "../types/sim";
 
 /** Resolve the REST API base URL from Vite env or default to same-origin relative paths. */
@@ -112,4 +119,45 @@ export async function injectEvent(payload: InjectEventRequest): Promise<InjectEv
     },
     isInjectEventResponse,
   );
+}
+
+/** Start or resume the simulation loop via POST /sim/start. */
+export async function startSim(): Promise<SimControlResponse> {
+  return requestJson("/sim/start", { method: "POST" }, isSimControlResponse);
+}
+
+/** Pause the simulation loop via POST /sim/pause. */
+export async function pauseSim(): Promise<SimControlResponse> {
+  return requestJson("/sim/pause", { method: "POST" }, isSimControlResponse);
+}
+
+/** Update the simulation speed multiplier (1x, 4x, or 16x) via POST /sim/speed. */
+export async function setSimSpeed(speed: SimSpeed): Promise<SimControlResponse> {
+  return requestJson(
+    "/sim/speed",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ speed }),
+    },
+    isSimControlResponse,
+  );
+}
+
+/** Fetch detailed persona, plan, memory, reflection, and relationship state for one agent. */
+export async function fetchAgentDetail(agentId: string): Promise<AgentDetail> {
+  const normalizedId = agentId.trim();
+  if (normalizedId.length === 0) {
+    throw new Error("Agent id must be a non-empty string");
+  }
+  return requestJson(
+    `/agents/${encodeURIComponent(normalizedId)}`,
+    undefined,
+    isAgentDetail,
+  );
+}
+
+/** Fetch canonical pairwise relationships and agent node metadata from GET /relationships. */
+export async function fetchRelationships(): Promise<RelationshipsResponse> {
+  return requestJson("/relationships", undefined, isRelationshipsResponse);
 }

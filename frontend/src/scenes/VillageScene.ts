@@ -1,5 +1,10 @@
 import Phaser from "phaser";
-import type { AgentSnapshot, TickMessage } from "../types/sim";
+import type {
+  AgentSnapshot,
+  DialogueMessage,
+  EventMessage,
+  TickMessage,
+} from "../types/sim";
 
 interface AgentVisual {
   container: Phaser.GameObjects.Container;
@@ -9,10 +14,35 @@ interface AgentVisual {
   lastY: number;
 }
 
+interface ActiveBubble {
+  speakerId: string;
+  container: Phaser.GameObjects.Container;
+  expiryTimer: Phaser.Time.TimerEvent;
+}
+
 const DEFAULT_TILE_SIZE = 32;
 const MIN_ZOOM = 0.5;
 const MAX_ZOOM = 2.5;
 const FRAMES_PER_AGENT = 4;
+const BUBBLE_DEPTH = 60;
+const BUBBLE_OFFSET_Y = 40;
+const BUBBLE_DURATION_MS = 2400;
+const TURN_STAGGER_MS = 1800;
+const MAX_DIALOGUE_TURNS = 6;
+const MAX_BUBBLE_CHARS = 160;
+const EVENT_RING_DEPTH = 55;
+const EVENT_BANNER_DEPTH = 65;
+const EVENT_DURATION_MS = 2600;
+
+function isTextInputFocused(): boolean {
+  const active = document.activeElement;
+  return (
+    active instanceof HTMLInputElement ||
+    active instanceof HTMLTextAreaElement ||
+    active instanceof HTMLSelectElement ||
+    (active instanceof HTMLElement && active.isContentEditable)
+  );
+}
 
 /** Phaser 3 scene rendering the Tiled village map, location labels, and server-synced agents. */
 export class VillageScene extends Phaser.Scene {
@@ -20,6 +50,12 @@ export class VillageScene extends Phaser.Scene {
   private pendingTick: TickMessage | null = null;
   private collisionLayer: Phaser.Tilemaps.TilemapLayer | null = null;
   private readonly agentVisuals = new Map<string, AgentVisual>();
+  private readonly locationCenters = new Map<string, { x: number; y: number }>();
+  private readonly activeBubbles = new Map<string, ActiveBubble>();
+  private readonly dialogueTimers = new Set<Phaser.Time.TimerEvent>();
+  private readonly speakerDialogueSeq = new Map<string, number>();
+  private readonly transientEventObjects = new Set<Phaser.GameObjects.GameObject>();
+  private dialogueSeqCounter = 0;
   private tileSize = DEFAULT_TILE_SIZE;
 
   private isDragging = false;
@@ -60,9 +96,17 @@ export class VillageScene extends Phaser.Scene {
     this.collisionLayer?.setVisible(false).setAlpha(0.55).setDepth(5);
 
     this.input.keyboard?.on("keydown-C", () => {
+      if (isTextInputFocused()) {
+        return;
+      }
       if (this.collisionLayer !== null) {
         this.collisionLayer.setVisible(!this.collisionLayer.visible);
       }
+    });
+
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.cleanupTransientVisuals();
+      this.isReady = false;
     });
 
     this.renderLocationLabels(map);
@@ -73,6 +117,28 @@ export class VillageScene extends Phaser.Scene {
       const latest = this.pendingTick;
       this.pendingTick = null;
       this.applyTick(latest);
+    }
+  }
+
+  /** Enable or suspend Phaser keyboard handling while DOM form inputs hold focus. */
+  public setKeyboardEnabled(enabled: boolean): void {
+    if (this.input.keyboard !== null) {
+      this.input.keyboard.enabled = enabled;
+    }
+  }
+
+  public override update(): void {
+    if (!this.isReady) {
+      return;
+    }
+    for (const [speakerId, bubble] of this.activeBubbles.entries()) {
+      const visual = this.agentVisuals.get(speakerId);
+      if (visual !== undefined) {
+        bubble.container.setPosition(
+          visual.container.x,
+          visual.container.y - BUBBLE_OFFSET_Y,
+        );
+      }
     }
   }
 
@@ -91,7 +157,236 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
+  /** Sequence live dialogue turns into depth >= 60 speech bubbles tracking their speakers. */
+  public showDialogue(msg: DialogueMessage): void {
+    if (!this.isReady || msg.turns.length === 0) {
+      return;
+    }
+
+    const turns = msg.turns.slice(0, MAX_DIALOGUE_TURNS);
+    this.dialogueSeqCounter += 1;
+    const seq = this.dialogueSeqCounter;
+
+    for (const participantId of msg.participants) {
+      this.speakerDialogueSeq.set(participantId, seq);
+    }
+    for (const turn of turns) {
+      this.speakerDialogueSeq.set(turn.speaker_id, seq);
+    }
+
+    turns.forEach((turn, idx) => {
+      const delayMs = idx * TURN_STAGGER_MS;
+      if (delayMs === 0) {
+        this.renderSpeakerBubble(turn.speaker_id, turn.speaker_name, turn.text);
+        return;
+      }
+
+      const timer = this.time.delayedCall(delayMs, () => {
+        this.dialogueTimers.delete(timer);
+        if (!this.isReady) {
+          return;
+        }
+        if (this.speakerDialogueSeq.get(turn.speaker_id) !== seq) {
+          return;
+        }
+        this.renderSpeakerBubble(turn.speaker_id, turn.speaker_name, turn.text);
+      });
+      this.dialogueTimers.add(timer);
+    });
+  }
+
+  /** Display a transient location pulse ring and banner when a god-mode event occurs. */
+  public showEvent(msg: EventMessage): void {
+    if (!this.isReady) {
+      return;
+    }
+
+    const target = this.resolveEventTarget(msg.location);
+    const ring: Phaser.GameObjects.Arc = this.add
+      .circle(target.x, target.y, 16, 0xf59e0b, 0.2)
+      .setStrokeStyle(3, 0xfbbf24, 0.95)
+      .setDepth(EVENT_RING_DEPTH);
+    this.transientEventObjects.add(ring);
+
+    this.tweens.add({
+      targets: ring,
+      scale: { from: 0.75, to: 4.5 },
+      alpha: { from: 0.95, to: 0 },
+      duration: EVENT_DURATION_MS,
+      ease: "Cubic.easeOut",
+      onComplete: () => {
+        this.transientEventObjects.delete(ring);
+        ring.destroy();
+      },
+    });
+
+    const rawText = msg.text.trim();
+    const truncated =
+      rawText.length > 96 ? `${rawText.slice(0, 93).trimEnd()}...` : rawText;
+    const prefix = msg.location ? `[${msg.location}] ` : "[Village Event] ";
+    const banner = this.add
+      .text(target.x, target.y - 28, `${prefix}${truncated}`, {
+        fontFamily: "Inter, system-ui, sans-serif",
+        fontSize: "12px",
+        fontStyle: "bold",
+        color: "#fef3c7",
+        backgroundColor: "rgba(120, 53, 15, 0.92)",
+        padding: { left: 8, right: 8, top: 5, bottom: 5 },
+        wordWrap: { width: 260, useAdvancedWrap: true },
+        align: "center",
+      })
+      .setOrigin(0.5, 1)
+      .setDepth(EVENT_BANNER_DEPTH);
+    banner.setResolution(2);
+    this.transientEventObjects.add(banner);
+
+    this.tweens.add({
+      targets: banner,
+      y: target.y - 56,
+      duration: EVENT_DURATION_MS,
+      ease: "Sine.easeOut",
+    });
+
+    this.tweens.add({
+      targets: banner,
+      alpha: 0,
+      delay: Math.floor(EVENT_DURATION_MS * 0.6),
+      duration: Math.ceil(EVENT_DURATION_MS * 0.4),
+      ease: "Quad.easeIn",
+      onComplete: () => {
+        this.transientEventObjects.delete(banner);
+        banner.destroy();
+      },
+    });
+  }
+
+  private renderSpeakerBubble(
+    speakerId: string,
+    speakerName: string,
+    text: string,
+  ): void {
+    this.clearSpeakerBubble(speakerId);
+
+    const visual = this.agentVisuals.get(speakerId);
+    const cleanText = text.trim();
+    if (visual === undefined || cleanText.length === 0) {
+      return;
+    }
+
+    const displayText =
+      cleanText.length > MAX_BUBBLE_CHARS
+        ? `${cleanText.slice(0, MAX_BUBBLE_CHARS - 3).trimEnd()}...`
+        : cleanText;
+
+    const bubbleText = this.add
+      .text(0, 0, `${speakerName}: ${displayText}`, {
+        fontFamily: "Inter, system-ui, sans-serif",
+        fontSize: "11px",
+        fontStyle: "normal",
+        color: "#f8fafc",
+        wordWrap: { width: 190, useAdvancedWrap: true },
+        lineSpacing: 2,
+      })
+      .setOrigin(0.5, 1);
+    bubbleText.setResolution(2);
+
+    const padX = 8;
+    const padY = 6;
+    const pointerHeight = 6;
+    const boxWidth = Math.max(64, Math.ceil(bubbleText.width) + padX * 2);
+    const boxHeight = Math.ceil(bubbleText.height) + padY * 2;
+    const topY = -(boxHeight + pointerHeight);
+
+    const bg = this.add.graphics();
+    bg.fillStyle(0x0f172a, 0.94);
+    bg.lineStyle(1.5, 0x38bdf8, 0.95);
+    bg.fillRoundedRect(-boxWidth / 2, topY, boxWidth, boxHeight, 8);
+    bg.strokeRoundedRect(-boxWidth / 2, topY, boxWidth, boxHeight, 8);
+    bg.fillTriangle(-5, -pointerHeight, 5, -pointerHeight, 0, 0);
+    bg.beginPath();
+    bg.moveTo(-5, -pointerHeight);
+    bg.lineTo(0, 0);
+    bg.lineTo(5, -pointerHeight);
+    bg.strokePath();
+
+    bubbleText.setPosition(0, -(pointerHeight + padY));
+
+    const container = this.add
+      .container(
+        visual.container.x,
+        visual.container.y - BUBBLE_OFFSET_Y,
+        [bg, bubbleText],
+      )
+      .setDepth(BUBBLE_DEPTH)
+      .setAlpha(0);
+
+    this.tweens.add({
+      targets: container,
+      alpha: 1,
+      duration: 120,
+      ease: "Sine.easeOut",
+    });
+
+    const expiryTimer = this.time.delayedCall(BUBBLE_DURATION_MS, () => {
+      this.clearSpeakerBubble(speakerId);
+    });
+
+    this.activeBubbles.set(speakerId, {
+      speakerId,
+      container,
+      expiryTimer,
+    });
+  }
+
+  private clearSpeakerBubble(speakerId: string): void {
+    const existing = this.activeBubbles.get(speakerId);
+    if (existing === undefined) {
+      return;
+    }
+    this.activeBubbles.delete(speakerId);
+    existing.expiryTimer.remove(false);
+    this.tweens.killTweensOf(existing.container);
+    existing.container.destroy(true);
+  }
+
+  private resolveEventTarget(location: string | null): { x: number; y: number } {
+    if (location !== null) {
+      const exact = this.locationCenters.get(location);
+      if (exact !== undefined) {
+        return exact;
+      }
+      const lower = location.trim().toLowerCase();
+      for (const [name, coords] of this.locationCenters.entries()) {
+        if (name.toLowerCase() === lower) {
+          return coords;
+        }
+      }
+    }
+    return {
+      x: this.cameras.main.midPoint.x,
+      y: this.cameras.main.midPoint.y,
+    };
+  }
+
+  private cleanupTransientVisuals(): void {
+    for (const timer of this.dialogueTimers) {
+      timer.remove(false);
+    }
+    this.dialogueTimers.clear();
+
+    for (const speakerId of Array.from(this.activeBubbles.keys())) {
+      this.clearSpeakerBubble(speakerId);
+    }
+
+    for (const obj of this.transientEventObjects) {
+      this.tweens.killTweensOf(obj);
+      obj.destroy();
+    }
+    this.transientEventObjects.clear();
+  }
+
   private renderLocationLabels(map: Phaser.Tilemaps.Tilemap): void {
+    this.locationCenters.clear();
     const locationObjects = map.getObjectLayer("locations")?.objects ?? [];
     for (const obj of locationObjects) {
       if (!obj.name) {
@@ -99,6 +394,7 @@ export class VillageScene extends Phaser.Scene {
       }
       const centerX = (obj.x ?? 0) + (obj.width ?? 0) / 2;
       const centerY = (obj.y ?? 0) + (obj.height ?? 0) / 2;
+      this.locationCenters.set(obj.name, { x: centerX, y: centerY });
 
       const label = this.add
         .text(centerX, centerY, obj.name, {

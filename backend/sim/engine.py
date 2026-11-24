@@ -14,6 +14,7 @@ from agents.agent import AgentBrain, PendingObservation
 from agents.conversation import ConversationManager
 from agents.personas import SEEDED_PERSONAS, AgentPersona
 from agents.planner import DailyPlanner
+from agents.reflection import ReflectionManager
 from llm.gateway import LLMGateway
 from memory.models import AgentRecord
 from memory.retrieval import MemoryRetriever
@@ -38,6 +39,7 @@ class AgentSnapshot(BaseModel):
     y: int
     target_location: str | None
     current_action: str
+    mood: str = "calm"
 
 
 class TickPayload(BaseModel):
@@ -77,6 +79,7 @@ class AgentEntity:
     replan_reason: str = ""
     active_plan_action: str = ""
     last_salient_tick: int = -1
+    mood: str = "calm"
 
     def to_snapshot(self) -> AgentSnapshot:
         """Convert runtime agent state into a serializable AgentSnapshot."""
@@ -89,6 +92,7 @@ class AgentEntity:
             y=self.y,
             target_location=self.target_location,
             current_action=self.current_action,
+            mood=self.mood,
         )
 
 
@@ -156,13 +160,19 @@ class SimulationEngine:
         memory_store: MemoryStore | None = None,
         retriever: MemoryRetriever | None = None,
         llm_gateway: LLMGateway | None = None,
+        reflection_threshold: int = 150,
     ) -> None:
         if isinstance(dwell_ticks, bool) or dwell_ticks < 0:
             raise ValueError(f"dwell_ticks must be >= 0, got {dwell_ticks!r}")
+        if isinstance(reflection_threshold, bool) or reflection_threshold < 1:
+            raise ValueError(
+                f"reflection_threshold must be >= 1, got {reflection_threshold!r}"
+            )
         self.world = world
         self.clock = clock if clock is not None else SimClock()
         self.seed = seed
         self.dwell_ticks = dwell_ticks
+        self.reflection_threshold = reflection_threshold
         resolved_personas = SEEDED_PERSONAS if personas is None else personas
         self.agents: dict[str, AgentEntity] = _create_initial_agents(world, resolved_personas)
         self.memory_store = memory_store
@@ -170,7 +180,11 @@ class SimulationEngine:
         self.llm_gateway = llm_gateway
         self.planner = DailyPlanner()
         self.brains: dict[str, AgentBrain] = {
-            agent_id: AgentBrain(agent_id=agent_id, persona=agent.persona)
+            agent_id: AgentBrain(
+                agent_id=agent_id,
+                persona=agent.persona,
+                reflection_threshold=reflection_threshold,
+            )
             for agent_id, agent in self.agents.items()
         }
         self.conversation_manager: ConversationManager | None = (
@@ -182,6 +196,16 @@ class SimulationEngine:
             if llm_gateway is not None and memory_store is not None
             else None
         )
+        self.reflection_manager: ReflectionManager | None = (
+            ReflectionManager(
+                llm_gateway=llm_gateway,
+                memory_store=memory_store,
+                retriever=retriever,
+                reflection_threshold=reflection_threshold,
+            )
+            if llm_gateway is not None and memory_store is not None
+            else None
+        )
         self._step_lock = asyncio.Lock()
         self._stepping = False
         self._pre_step_payload: TickPayload | None = None
@@ -189,6 +213,7 @@ class SimulationEngine:
         self._event_callbacks: list[EventCallback] = []
         self._loop_task: asyncio.Task[None] | None = None
         self._stop_requested = False
+        self._wake_event = asyncio.Event()
 
     def get_serialized_plan_json(self, agent_id: str) -> str:
         """Return JSON representation of an agent's structured plan or fallback routine."""
@@ -212,6 +237,7 @@ class SimulationEngine:
                     y=agent.y,
                     current_action=agent.current_action,
                     current_plan_json=self.get_serialized_plan_json(agent.id),
+                    mood=agent.mood,
                 )
             )
             existing = await self.memory_store.list_memories(agent.id, limit=1)
@@ -246,8 +272,19 @@ class SimulationEngine:
             seed=self.seed,
         )
 
+    async def _persist_clock_state(self) -> None:
+        """Persist current simulation clock metadata when a MemoryStore is attached."""
+        if self.memory_store is None:
+            return
+        await self.memory_store.save_sim_state(
+            tick=self.clock.tick,
+            sim_time=self.clock.sim_time_str,
+            speed=self.clock.speed,
+            seed=self.seed,
+        )
+
     async def persist_tick_state(self) -> None:
-        """Persist current agent positions, actions, plans, and simulation clock to SQLite."""
+        """Persist current agent positions, actions, plans, moods, and simulation clock."""
         if self.memory_store is None:
             return
 
@@ -261,13 +298,9 @@ class SimulationEngine:
             )
             for agent in self.agents.values()
         ]
-        await self.memory_store.update_agent_states(states)
-        await self.memory_store.save_sim_state(
-            tick=self.clock.tick,
-            sim_time=self.clock.sim_time_str,
-            speed=self.clock.speed,
-            seed=self.seed,
-        )
+        moods = {agent.id: agent.mood for agent in self.agents.values()}
+        await self.memory_store.update_agent_states(states, moods=moods)
+        await self._persist_clock_state()
 
     def register_tick_callback(self, callback: TickCallback) -> None:
         """Register an async callback invoked with each emitted TickPayload."""
@@ -292,6 +325,32 @@ class SimulationEngine:
         if self._stepping and self._pre_step_payload is not None:
             return self._pre_step_payload
         return self._build_live_tick_payload()
+
+    def _current_control_tick_payload(self) -> TickPayload:
+        """Build a tick payload overlaying live clock playback state even mid-step."""
+        payload = self.build_tick_payload()
+        if self._stepping:
+            return payload.model_copy(
+                update={
+                    "speed": self.clock.speed,
+                    "running": self.clock.running,
+                }
+            )
+        return payload
+
+    async def _broadcast_tick_payload(self, payload: TickPayload) -> None:
+        """Dispatch a TickPayload to all registered tick callbacks safely."""
+        for callback in list(self._tick_callbacks):
+            try:
+                await callback(payload)
+            except Exception:
+                logger.exception("Tick callback failed at tick %s", payload.tick)
+
+    async def broadcast_current_tick(self) -> TickPayload:
+        """Build and broadcast the current control-aware TickPayload."""
+        payload = self._current_control_tick_payload()
+        await self._broadcast_tick_payload(payload)
+        return payload
 
     def _advance_routine_target(self, agent: AgentEntity) -> None:
         """Select the next routine destination, skipping the agent's current anchor tile."""
@@ -543,6 +602,16 @@ class SimulationEngine:
         payloads: list[dict[str, Any]] = []
         for outcome in outcomes:
             if outcome is not None:
+                for participant_id, mood in zip(
+                    outcome.participants,
+                    outcome.moods,
+                    strict=True,
+                ):
+                    if participant_id in self.agents:
+                        self.agents[participant_id].mood = mood
+                    if participant_id in self.brains:
+                        self.brains[participant_id].mood = mood
+                        self.brains[participant_id].add_importance(outcome.importance)
                 if outcome.importance >= 7:
                     for participant_id in outcome.participants:
                         if participant_id in self.agents:
@@ -607,15 +676,50 @@ class SimulationEngine:
                 if unique_locations:
                     agent.routine = unique_locations
 
+    async def _run_reflections(self) -> list[dict[str, Any]]:
+        """Run threshold-triggered reflections concurrently for qualifying agents."""
+        if self.reflection_manager is None:
+            return []
+
+        qualifying_ids = [
+            agent_id
+            for agent_id in sorted(self.agents)
+            if self.brains[agent_id].should_reflect()
+        ]
+        if not qualifying_ids:
+            return []
+
+        outcomes = await asyncio.gather(
+            *(
+                self.reflection_manager.run_reflection(
+                    agent_id=agent_id,
+                    persona=self.agents[agent_id].persona,
+                    tick=self.clock.tick,
+                    sim_time=self.clock.sim_time_str,
+                )
+                for agent_id in qualifying_ids
+            )
+        )
+
+        payloads: list[dict[str, Any]] = []
+        for agent_id, outcome in zip(qualifying_ids, outcomes, strict=True):
+            if outcome is not None:
+                self.brains[agent_id].reset_reflection_counter(tick=self.clock.tick)
+                self.brains[agent_id].mood = outcome.mood
+                self.agents[agent_id].mood = outcome.mood
+                payloads.extend(outcome.ws_payloads)
+        return payloads
+
     async def _run_cognitive_phase(self, gateway: LLMGateway) -> list[dict[str, Any]]:
-        """Execute Perceive -> Remember -> Converse -> Decide before spatial stepping."""
+        """Execute Perceive -> Remember -> Converse -> Decide -> Reflect before movement."""
         for agent in self.agents.values():
             agent.conversation_hold_ticks = max(0, agent.conversation_hold_ticks - 1)
 
         await self._perceive_and_remember(gateway)
         dialogue_payloads = await self._run_conversations()
         await self._decide_actions(gateway)
-        return dialogue_payloads
+        reflection_payloads = await self._run_reflections()
+        return dialogue_payloads + reflection_payloads
 
     async def _emit_event_payload(self, event_payload: dict[str, Any]) -> None:
         """Dispatch a dialogue or god-mode event payload to registered callbacks."""
@@ -710,6 +814,7 @@ class SimulationEngine:
             agent.needs_replan = True
             agent.replan_reason = obs_text
             agent.last_salient_tick = current_tick
+            self.brains[agent_id].add_importance(8)
 
         event_payload: dict[str, Any] = {
             "type": "event",
@@ -725,13 +830,13 @@ class SimulationEngine:
 
     async def step_once(self) -> TickPayload:
         """Advance simulation state by one tick and notify registered async callbacks."""
-        pending_dialogue_payloads: list[dict[str, Any]] = []
+        pending_event_payloads: list[dict[str, Any]] = []
         async with self._step_lock:
             self._pre_step_payload = self._build_live_tick_payload()
             self._stepping = True
             try:
                 if self.llm_gateway is not None:
-                    pending_dialogue_payloads = await self._run_cognitive_phase(
+                    pending_event_payloads = await self._run_cognitive_phase(
                         self.llm_gateway
                     )
 
@@ -750,16 +855,34 @@ class SimulationEngine:
                 self._stepping = False
                 self._pre_step_payload = None
 
-        for callback in list(self._tick_callbacks):
-            try:
-                await callback(payload)
-            except Exception:
-                logger.exception("Tick callback failed at tick %s", payload.tick)
+        await self._broadcast_tick_payload(payload)
 
-        for dialogue_payload in pending_dialogue_payloads:
-            await self._emit_event_payload(dialogue_payload)
+        for event_payload in pending_event_payloads:
+            await self._emit_event_payload(event_payload)
 
         return payload
+
+    async def _finalize_control_change(self) -> TickPayload:
+        """Wake the background loop, persist clock state, and broadcast live snapshot."""
+        self._wake_event.set()
+        await self._persist_clock_state()
+        return await self.broadcast_current_tick()
+
+    async def start_simulation(self) -> TickPayload:
+        """Start or resume the simulation loop, wake it immediately, and broadcast state."""
+        self.clock.start()
+        await self.start_loop()
+        return await self._finalize_control_change()
+
+    async def pause_simulation(self) -> TickPayload:
+        """Pause the simulation loop immediately and broadcast live playback state."""
+        self.clock.pause()
+        return await self._finalize_control_change()
+
+    async def set_simulation_speed(self, speed: int) -> TickPayload:
+        """Update playback speed (1, 4, or 16), wake the loop, and broadcast state."""
+        self.clock.set_speed(speed)
+        return await self._finalize_control_change()
 
     async def start_loop(self) -> None:
         """Start the background async simulation loop if not already running."""
@@ -771,6 +894,7 @@ class SimulationEngine:
     async def stop_loop(self) -> None:
         """Stop the background simulation loop and await task cancellation."""
         self._stop_requested = True
+        self._wake_event.set()
         task = self._loop_task
         self._loop_task = None
         if task is not None and not task.done():
@@ -783,11 +907,18 @@ class SimulationEngine:
     async def _run_loop(self) -> None:
         """Run continuous non-blocking ticks according to clock running and speed state."""
         while not self._stop_requested:
+            self._wake_event.clear()
             if self.clock.running:
                 try:
                     await self.step_once()
                 except Exception:
                     logger.exception("Unexpected error during simulation tick")
-                await asyncio.sleep(self.clock.tick_interval_seconds)
+                timeout = self.clock.tick_interval_seconds
             else:
-                await asyncio.sleep(0.1)
+                timeout = 0.25
+
+            if not self._wake_event.is_set() and not self._stop_requested:
+                try:
+                    await asyncio.wait_for(self._wake_event.wait(), timeout=timeout)
+                except TimeoutError:
+                    pass

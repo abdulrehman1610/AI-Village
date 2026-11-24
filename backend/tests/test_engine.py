@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
+from typing import Any
 
 import pytest
 
@@ -258,5 +260,201 @@ async def test_engine_build_tick_payload_stays_consistent_during_persist() -> No
         assert completed_payload.tick == 1
         assert engine.build_tick_payload().tick == 1
     finally:
+        await db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_engine_triggers_reflection_at_threshold_and_resets_counter() -> None:
+    world = _load_real_world()
+
+    # Boundary check at default threshold (150) and invalid threshold rejection.
+    default_engine = SimulationEngine(world=world, clock=SimClock(), seed=42)
+    assert default_engine.reflection_threshold == 150
+    assert default_engine.brains["maya"].reflection_threshold == 150
+    default_engine.brains["maya"].add_importance(149)
+    assert default_engine.brains["maya"].should_reflect() is False
+    default_engine.brains["maya"].add_importance(1)
+    assert default_engine.brains["maya"].should_reflect() is True
+    with pytest.raises(ValueError):
+        SimulationEngine(world=world, reflection_threshold=0)
+    with pytest.raises(ValueError):
+        SimulationEngine(world=world, reflection_threshold=True)
+
+    db = Database("sqlite+aiosqlite:///:memory:")
+    await db.init_models()
+
+    try:
+        embedding_service = EmbeddingService.from_mode("mock")
+        memory_store = MemoryStore(db=db, embedding_service=embedding_service)
+        retriever = MemoryRetriever(store=memory_store, embedding_service=embedding_service)
+        llm_gateway = LLMGateway(provider=MockProvider(seed=42), db=db, seed=42)
+        engine = SimulationEngine(
+            world=world,
+            clock=SimClock(speed=1, base_tick_seconds=0.05),
+            seed=42,
+            dwell_ticks=4,
+            memory_store=memory_store,
+            retriever=retriever,
+            llm_gateway=llm_gateway,
+            reflection_threshold=30,
+        )
+        await engine.initialize_persistence()
+
+        # Tick-0 seeded persona memories must not advance the reflection accumulator.
+        assert engine.brains["maya"].accumulated_importance == 0
+
+        emitted_events: list[dict[str, Any]] = []
+
+        async def _capture_event(payload: dict[str, Any]) -> None:
+            emitted_events.append(payload)
+
+        engine.register_event_callback(_capture_event)
+
+        # Three god-mode events at Home_Maya add 3 * 8 = 24 importance (still < 30).
+        for idx in range(3):
+            event_payload = await engine.inject_event(
+                f"Notice #{idx + 1}: delivery crate arrived outside the bakery",
+                location="Home_Maya",
+                radius=2,
+            )
+            assert "maya" in event_payload["affected_agents"]
+
+        assert engine.brains["maya"].accumulated_importance == 24
+        assert engine.brains["maya"].should_reflect() is False
+
+        # Step tick 1: initial daily plan (+6 importance) crosses threshold 30 and reflects.
+        tick_payload = await engine.step_once()
+        assert tick_payload.tick == 1
+
+        reflection_events = [
+            ev
+            for ev in emitted_events
+            if ev.get("type") == "reflection" and ev.get("agent_id") == "maya"
+        ]
+        assert len(reflection_events) >= 1
+        for ev in reflection_events:
+            assert ev["agent_name"] == "Maya"
+            assert isinstance(ev["insight"], str) and ev["insight"].strip()
+            assert isinstance(ev["cited_memory_ids"], list) and len(ev["cited_memory_ids"]) >= 1
+            assert isinstance(ev["mood"], str) and ev["mood"].strip()
+
+        reflection_memories = await memory_store.list_memories("maya", memory_type="reflection")
+        assert len(reflection_memories) == len(reflection_events)
+        for mem in reflection_memories:
+            assert mem.importance == 8
+            metadata = json.loads(mem.metadata_json)
+            cited_ids = metadata.get("cited_memory_ids", [])
+            assert isinstance(cited_ids, list) and len(cited_ids) >= 1
+            cited_records = await memory_store.get_memories_by_ids("maya", cited_ids)
+            assert len(cited_records) == len(cited_ids)
+
+        # Accumulator is reset and mood is synchronized across brain, entity, snapshot, and DB.
+        assert engine.brains["maya"].accumulated_importance < 30
+        assert engine.brains["maya"].accumulated_importance == 0
+        assert engine.brains["maya"].last_reflection_tick == 0
+        expected_mood = reflection_events[-1]["mood"]
+        assert engine.agents["maya"].mood == expected_mood
+        assert engine.brains["maya"].mood == expected_mood
+
+        maya_snapshot = next(a for a in tick_payload.agents if a.id == "maya")
+        assert maya_snapshot.mood == expected_mood
+
+        persisted_maya = await memory_store.get_agent("maya")
+        assert persisted_maya is not None
+        assert persisted_maya.mood == expected_mood
+        assert isinstance(json.loads(persisted_maya.current_plan_json), list)
+    finally:
+        await db.dispose()
+
+
+@pytest.mark.asyncio
+async def test_engine_time_controls_wake_loop_and_broadcast_immediately() -> None:
+    world = _load_real_world()
+    db = Database("sqlite+aiosqlite:///:memory:")
+    await db.init_models()
+
+    try:
+        embedding_service = EmbeddingService.from_mode("mock")
+        memory_store = MemoryStore(db=db, embedding_service=embedding_service)
+        engine = SimulationEngine(
+            world=world,
+            clock=SimClock(speed=1, running=False, base_tick_seconds=2.0),
+            seed=42,
+            memory_store=memory_store,
+        )
+        await engine.initialize_persistence()
+
+        received_payloads: list[TickPayload] = []
+
+        async def _capture_tick(payload: TickPayload) -> None:
+            received_payloads.append(payload)
+
+        engine.register_tick_callback(_capture_tick)
+
+        await engine.start_loop()
+        await asyncio.sleep(0.02)
+        assert engine.clock.tick == 0
+        assert received_payloads == []
+
+        # Changing speed while paused updates clock and broadcasts immediately without stepping.
+        speed_payload = await engine.set_simulation_speed(16)
+        assert engine.clock.speed == 16
+        assert engine.clock.running is False
+        assert speed_payload.speed == 16
+        assert speed_payload.running is False
+        assert received_payloads[-1].speed == 16
+        assert received_payloads[-1].running is False
+        assert engine.clock.tick == 0
+
+        # Starting wakes the paused loop immediately and advances smoothly at 16x (0.125s/tick).
+        start_time = time.monotonic()
+        start_payload = await engine.start_simulation()
+        assert engine.clock.running is True
+        assert start_payload.running is True
+        assert start_payload.speed == 16
+
+        async def _wait_for_tick(target_tick: int, timeout: float = 0.5) -> None:
+            deadline = time.monotonic() + timeout
+            while engine.clock.tick < target_tick:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError(
+                        f"Timed out waiting for tick >= {target_tick}, got {engine.clock.tick}"
+                    )
+                await asyncio.sleep(min(0.015, remaining))
+
+        await _wait_for_tick(2, timeout=0.5)
+        assert (time.monotonic() - start_time) < 0.5
+
+        # Pausing halts progression immediately and broadcasts running=False.
+        pause_payload = await engine.pause_simulation()
+        assert engine.clock.running is False
+        assert pause_payload.running is False
+        assert received_payloads[-1].running is False
+        paused_tick = engine.clock.tick
+        await asyncio.sleep(0.2)
+        assert engine.clock.tick == paused_tick
+
+        # Verify 1x -> 16x interrupts an active 2.0s sleep within < 0.5s.
+        await engine.set_simulation_speed(1)
+        assert engine.clock.speed == 1
+        await engine.start_simulation()
+        await _wait_for_tick(paused_tick + 1, timeout=0.4)
+        await asyncio.sleep(0.03)  # Now sleeping inside the 2.0s 1x interval.
+        tick_before_wake = engine.clock.tick
+
+        wake_start = time.monotonic()
+        wake_payload = await engine.set_simulation_speed(16)
+        assert engine.clock.speed == 16
+        assert wake_payload.speed == 16
+        assert any(p.speed == 16 and p.running is True for p in received_payloads)
+
+        await _wait_for_tick(tick_before_wake + 2, timeout=0.5)
+        assert (time.monotonic() - wake_start) < 0.5
+
+        sim_state = await memory_store.get_or_create_sim_state()
+        assert sim_state.speed == 16
+    finally:
+        await engine.stop_loop()
         await db.dispose()
 

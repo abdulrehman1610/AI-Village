@@ -77,6 +77,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             world = WorldMap.from_tiled_json(resolved_settings.resolved_map_path())
             clock = SimClock(
                 speed=resolved_settings.sim_speed,
+                running=resolved_settings.sim_auto_start,
                 base_tick_seconds=resolved_settings.sim_tick_seconds,
             )
             engine = SimulationEngine(
@@ -86,6 +87,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 memory_store=memory_store,
                 retriever=memory_retriever,
                 llm_gateway=llm_gateway,
+                reflection_threshold=resolved_settings.reflection_threshold,
             )
             await engine.initialize_persistence()
             ws_manager = ConnectionManager()

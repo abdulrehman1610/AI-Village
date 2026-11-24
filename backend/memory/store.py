@@ -122,6 +122,30 @@ class MemoryStore:
             result = await session.exec(stmt)
             return list(result.all())
 
+    async def get_memories_by_ids(
+        self,
+        agent_id: str,
+        memory_ids: Sequence[int],
+    ) -> list[MemoryRecord]:
+        """Fetch an agent's memories matching memory_ids, ordered created_tick DESC, id DESC."""
+        unique_ids = list(
+            dict.fromkeys(int(memory_id) for memory_id in memory_ids if int(memory_id) > 0)
+        )
+        if not unique_ids:
+            return []
+
+        stmt = (
+            select(MemoryRecord)
+            .where(
+                col(MemoryRecord.agent_id) == agent_id,
+                col(MemoryRecord.id).in_(unique_ids),
+            )
+            .order_by(col(MemoryRecord.created_tick).desc(), col(MemoryRecord.id).desc())
+        )
+        async with self.db.session() as session:
+            result = await session.exec(stmt)
+            return list(result.all())
+
     async def touch_memories(self, memory_ids: Sequence[int], tick: int) -> None:
         """Refresh last_access_tick on retrieved memories in a single transaction."""
         unique_ids = list(dict.fromkeys(int(memory_id) for memory_id in memory_ids))
@@ -154,6 +178,7 @@ class MemoryStore:
             existing.y = record.y
             existing.current_action = record.current_action
             existing.current_plan_json = record.current_plan_json
+            existing.mood = record.mood
             session.add(existing)
             await session.commit()
             return existing
@@ -173,16 +198,21 @@ class MemoryStore:
     async def update_agent_states(
         self,
         states: Sequence[tuple[str, int, int, str, str]],
+        *,
+        moods: Mapping[str, str] | None = None,
     ) -> None:
-        """Batch-update (agent_id, x, y, current_action, current_plan_json) rows."""
-        if not states:
+        """Batch-update agent spatial/plan state rows and optional moods."""
+        if not states and not moods:
             return
 
-        agent_ids = [agent_id for agent_id, *_ in states]
+        state_ids = [agent_id for agent_id, *_ in states]
+        mood_ids = list(moods.keys()) if moods is not None else []
+        agent_ids = list(dict.fromkeys([*state_ids, *mood_ids]))
         stmt = select(AgentRecord).where(col(AgentRecord.id).in_(agent_ids))
         async with self.db.session() as session:
             rows = list((await session.exec(stmt)).all())
             by_id = {row.id: row for row in rows}
+            updated_ids: set[str] = set()
             for agent_id, x, y, current_action, current_plan_json in states:
                 agent = by_id.get(agent_id)
                 if agent is None:
@@ -191,7 +221,19 @@ class MemoryStore:
                 agent.y = y
                 agent.current_action = current_action
                 agent.current_plan_json = current_plan_json
+                if moods is not None and agent_id in moods:
+                    agent.mood = moods[agent_id]
                 session.add(agent)
+                updated_ids.add(agent_id)
+            if moods is not None:
+                for agent_id, mood in moods.items():
+                    if agent_id in updated_ids:
+                        continue
+                    agent = by_id.get(agent_id)
+                    if agent is None:
+                        continue
+                    agent.mood = mood
+                    session.add(agent)
             await session.commit()
 
     async def get_or_create_sim_state(
@@ -275,19 +317,30 @@ class MemoryStore:
         notes: str = "",
         last_interaction_tick: int = 0,
     ) -> RelationshipRecord:
-        """Insert or update a pairwise agent relationship record."""
+        """Insert or update a canonical undirected pairwise agent relationship record."""
+        if agent_a == agent_b:
+            raise ValueError("Cannot create a relationship between an agent and itself.")
+
+        canon_a, canon_b = (agent_a, agent_b) if agent_a < agent_b else (agent_b, agent_a)
+        bounded_affinity = max(-1.0, min(1.0, float(affinity)))
+
         async with self.db.session() as session:
-            rel = await session.get(RelationshipRecord, (agent_a, agent_b))
+            rel = await session.get(RelationshipRecord, (canon_a, canon_b))
+            legacy = await session.get(RelationshipRecord, (canon_b, canon_a))
+            if legacy is not None:
+                await session.delete(legacy)
+                await session.flush()
+
             if rel is None:
                 rel = RelationshipRecord(
-                    agent_a=agent_a,
-                    agent_b=agent_b,
-                    affinity=affinity,
+                    agent_a=canon_a,
+                    agent_b=canon_b,
+                    affinity=bounded_affinity,
                     notes=notes,
                     last_interaction_tick=last_interaction_tick,
                 )
             else:
-                rel.affinity = affinity
+                rel.affinity = bounded_affinity
                 rel.notes = notes
                 rel.last_interaction_tick = last_interaction_tick
             session.add(rel)

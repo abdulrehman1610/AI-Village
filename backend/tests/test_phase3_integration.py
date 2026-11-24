@@ -127,8 +127,10 @@ async def test_engine_80_ticks_cognitive_loop_and_dialogue() -> None:
             assert record.current_plan_json == engine.get_serialized_plan_json(record.id)
             parsed_plan = json.loads(record.current_plan_json)
             assert isinstance(parsed_plan, list)
-            # Initial DailyPlan has 5..8 blocks; mid-day ReplanResponse allows 1..8 blocks.
-            assert 1 <= len(parsed_plan) <= 8
+            # Initial DailyPlan has 5..8 blocks; without injected events, zero replans should occur.
+            assert 5 <= len(parsed_plan) <= 8
+            plan_memories = await memory_store.list_memories(record.id, memory_type="plan")
+            assert len(plan_memories) == 1
             for block in parsed_plan:
                 assert {"start_hour", "end_hour", "location", "description"} <= set(
                     block.keys()
@@ -140,6 +142,12 @@ async def test_engine_80_ticks_cognitive_loop_and_dialogue() -> None:
         assert len(dialogue_payloads) >= 1
         assert len(conversations) >= 1
         assert len(dialogue_payloads) == len(conversations)
+        for dialogue in dialogue_payloads:
+            assert "Traits:" not in dialogue["summary"]
+            assert "lives at Home_" not in dialogue["summary"]
+        for conversation in conversations:
+            assert "Traits:" not in conversation.summary
+            assert "lives at Home_" not in conversation.summary
 
         first_dialogue = dialogue_payloads[0]
         assert len(first_dialogue["participants"]) == 2

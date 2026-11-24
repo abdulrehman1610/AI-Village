@@ -714,7 +714,7 @@ async def test_mock_provider_rumor_propagation_and_neutral_persona_guard() -> No
     liam = get_persona("liam")
     noah = get_persona("noah")
 
-    # Maya's bio contains "fire the village ovens"; routine memories must not trigger rumor mode.
+    # Seeded persona summaries and goals (even containing urgent words) must not trigger rumor mode.
     routine_decision_prompt = build_conversation_decision_prompt(
         speaker=maya,
         listener=liam,
@@ -723,6 +723,8 @@ async def test_mock_provider_rumor_propagation_and_neutral_persona_guard() -> No
         speaker_action="Baking sourdough loaves",
         listener_action="Picking up pastries",
         memories=[
+            maya.summary_text(),
+            f"{maya.name}'s goal: {maya.starting_goals[0]}",
             "Walked past the Park pond.",
             (
                 "Conversation with Clara: Exchanged updates about daily routines "
@@ -739,6 +741,48 @@ async def test_mock_provider_rumor_propagation_and_neutral_persona_guard() -> No
         ).raw_text
     )
     assert not routine_decision.opening_line.startswith("Have you heard?")
+
+    # Synthetic persona bio/goal containing "fire" must stay routine under MockProvider guard.
+    synthetic_seeded_bio = (
+        "lives at Home_Test. Traits: steady, kind, alert. "
+        "Prepares to fire the ceramic kiln before dawn. "
+        "Starting goals: Shape clay bowls; Sweep studio."
+    )
+    synthetic_seeded_goal = "TestAgent's goal: Check the fire exit before opening"
+    synthetic_guard_prompt = build_conversation_decision_prompt(
+        speaker=maya,
+        listener=liam,
+        location="Bakery",
+        sim_time="Day 1 08:05",
+        speaker_action="Kneading dough",
+        listener_action="Brewing espresso",
+        memories=[synthetic_seeded_bio, synthetic_seeded_goal],
+    )
+    synthetic_guard_decision = ConversationDecisionResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=synthetic_guard_prompt,
+                response_model=ConversationDecisionResponse,
+            )
+        ).raw_text
+    )
+    assert not synthetic_guard_decision.opening_line.startswith("Have you heard?")
+
+    synthetic_importance = ImportanceBatchResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=(
+                    "Rate the importance of each memory.\n"
+                    "Item count: 3\n\n"
+                    f"1. {maya.summary_text()}\n"
+                    f"2. {synthetic_seeded_bio}\n"
+                    f"3. {synthetic_seeded_goal}"
+                ),
+                response_model=ImportanceBatchResponse,
+            )
+        ).raw_text
+    )
+    assert all(3 <= score <= 6 for score in synthetic_importance.ratings)
 
     # Hop 1: Non-keyword [EVENT] memory triggers initiate=True and survives turn & summary.
     event_phrase = "Market fountain overflowed with lavender soap"
@@ -839,10 +883,20 @@ async def test_mock_provider_rumor_propagation_and_neutral_persona_guard() -> No
 
     gateway = LLMGateway(provider=provider)
     ratings = await gateway.rate_importance_batch(
-        [event_memory, hop1_summary.summary, "Walked past Park"],
+        [
+            event_memory,
+            hop1_summary.summary,
+            "Walked past Park",
+            maya.summary_text(),
+            synthetic_seeded_bio,
+            synthetic_seeded_goal,
+        ],
         tick=800,
         agent_id="liam",
     )
     assert 7 <= ratings[0] <= 9
     assert 7 <= ratings[1] <= 9
     assert 3 <= ratings[2] <= 6
+    assert 3 <= ratings[3] <= 6
+    assert 3 <= ratings[4] <= 6
+    assert 3 <= ratings[5] <= 6

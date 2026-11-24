@@ -21,7 +21,30 @@
       </header>
       <main id="stage">
         <div id="game-container"></div>
+        <aside id="activity-feed" aria-label="Live village activity"></aside>
       </main>
+      <section id="god-mode-bar" aria-label="God-mode event injection">
+        <form id="event-form">
+          <label class="god-mode-label" for="event-location">God Mode</label>
+          <select id="event-location" aria-label="Target location">
+            <option value="">All Village</option>
+          </select>
+          <input
+            id="event-text"
+            type="text"
+            maxlength="500"
+            placeholder="Inject a village event (e.g. A fire starts at the Bakery)..."
+            required
+          />
+          <button id="event-submit" type="submit">Inject Event</button>
+          <span
+            id="event-feedback"
+            class="feedback"
+            role="status"
+            aria-live="polite"
+          ></span>
+        </form>
+      </section>
       <footer id="controls-hint">
         Drag to pan · Scroll to zoom · Press C for collision grid
       </footer>

@@ -115,6 +115,7 @@ body {
 }
 
 #stage {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -136,6 +137,216 @@ body {
   border-radius: 0.5rem;
   border: 1px solid #1e293b;
   box-shadow: 0 20px 45px rgba(2, 6, 23, 0.65);
+}
+
+#activity-feed {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 320px;
+  max-width: calc(100% - 2rem);
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 20;
+  padding: 0.625rem;
+  border-radius: 0.625rem;
+  background: rgba(15, 23, 42, 0.88);
+  border: 1px solid #334155;
+  box-shadow: 0 14px 32px rgba(2, 6, 23, 0.6);
+  backdrop-filter: blur(8px);
+}
+
+.feed-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #94a3b8;
+}
+
+.feed-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.feed-empty {
+  padding: 0.5rem;
+  font-size: 0.75rem;
+  color: #94a3b8;
+  text-align: center;
+  border: 1px dashed #334155;
+  border-radius: 0.4rem;
+}
+
+.feed-item {
+  padding: 0.45rem 0.55rem;
+  border-radius: 0.4rem;
+  background: rgba(30, 41, 59, 0.9);
+  border: 1px solid #334155;
+  border-left-width: 3px;
+  font-size: 0.75rem;
+  line-height: 1.35;
+}
+
+.feed-item.event {
+  border-left-color: #f59e0b;
+}
+
+.feed-item.dialogue {
+  border-left-color: #38bdf8;
+}
+
+.feed-meta {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.2rem;
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+.feed-badge {
+  padding: 0.08rem 0.35rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.feed-item.event .feed-badge {
+  background: rgba(245, 158, 11, 0.18);
+  color: #fbbf24;
+}
+
+.feed-item.dialogue .feed-badge {
+  background: rgba(56, 189, 248, 0.18);
+  color: #38bdf8;
+}
+
+.feed-subject {
+  font-weight: 600;
+  color: #e2e8f0;
+  margin-bottom: 0.15rem;
+}
+
+.feed-body {
+  color: #f8fafc;
+  word-break: break-word;
+}
+
+.feed-submeta {
+  margin-top: 0.2rem;
+  font-size: 0.6875rem;
+  color: #94a3b8;
+}
+
+#god-mode-bar {
+  flex-shrink: 0;
+  padding: 0.55rem 1rem;
+  background: #1e293b;
+  border-top: 1px solid #334155;
+}
+
+#event-form {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  flex-wrap: wrap;
+}
+
+.god-mode-label {
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: #fbbf24;
+  white-space: nowrap;
+}
+
+#event-location,
+#event-text {
+  height: 2rem;
+  padding: 0 0.625rem;
+  border-radius: 0.375rem;
+  border: 1px solid #334155;
+  background: #0f172a;
+  color: #f8fafc;
+  font-family: inherit;
+  font-size: 0.8125rem;
+}
+
+#event-location {
+  min-width: 150px;
+}
+
+#event-text {
+  flex: 1;
+  min-width: 220px;
+}
+
+#event-location:focus,
+#event-text:focus {
+  outline: none;
+  border-color: #f59e0b;
+  box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.25);
+}
+
+#event-submit {
+  height: 2rem;
+  padding: 0 0.875rem;
+  border: 1px solid rgba(251, 191, 36, 0.45);
+  border-radius: 0.375rem;
+  background: #d97706;
+  color: #fffbeb;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background-color 0.15s ease, opacity 0.15s ease;
+}
+
+#event-submit:hover:not(:disabled) {
+  background: #b45309;
+}
+
+#event-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.feedback {
+  font-size: 0.75rem;
+  color: #94a3b8;
+  min-height: 1.25rem;
+  display: inline-flex;
+  align-items: center;
+}
+
+.feedback.ok,
+.feedback.error {
+  padding: 0.18rem 0.55rem;
+  border-radius: 9999px;
+  font-weight: 600;
+}
+
+.feedback.ok {
+  background: rgba(16, 185, 129, 0.16);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.35);
+}
+
+.feedback.error {
+  background: rgba(239, 68, 68, 0.16);
+  color: #f87171;
+  border: 1px solid rgba(248, 113, 113, 0.35);
 }
 
 #controls-hint {

@@ -1,0 +1,139 @@
+import type { DialogueMessage, EventMessage } from "../types/sim";
+
+const MAX_FEED_ITEMS = 25;
+
+/** Translucent overlay rendering live server event and dialogue updates without innerHTML. */
+export class ActivityFeed {
+  private readonly listEl: HTMLDivElement | null;
+  private emptyEl: HTMLDivElement | null = null;
+
+  constructor(containerEl: HTMLElement | null) {
+    if (containerEl === null) {
+      this.listEl = null;
+      return;
+    }
+
+    const headerEl = document.createElement("div");
+    headerEl.className = "feed-header";
+
+    const titleEl = document.createElement("span");
+    titleEl.textContent = "Live Activity";
+    headerEl.appendChild(titleEl);
+
+    const listEl = document.createElement("div");
+    listEl.className = "feed-list";
+    this.listEl = listEl;
+
+    const emptyEl = document.createElement("div");
+    emptyEl.className = "feed-empty";
+    emptyEl.textContent = "Waiting for live events and conversations...";
+    this.emptyEl = emptyEl;
+    listEl.appendChild(emptyEl);
+
+    containerEl.replaceChildren(headerEl, listEl);
+  }
+
+  /** Prepend a god-mode or world event card to the feed. */
+  public pushEvent(msg: EventMessage): void {
+    if (this.listEl === null) {
+      return;
+    }
+
+    const item = document.createElement("article");
+    item.className = "feed-item event";
+
+    const meta = this.createMetaRow(
+      "EVENT",
+      msg.sim_time,
+      msg.location ?? "All Village",
+    );
+
+    const body = document.createElement("div");
+    body.className = "feed-body";
+    body.textContent = msg.text;
+
+    const submeta = document.createElement("div");
+    submeta.className = "feed-submeta";
+    const count = msg.affected_agents.length;
+    submeta.textContent =
+      count > 0
+        ? `Alerted ${count} villager(s)`
+        : "No nearby witnesses";
+
+    item.append(meta, body, submeta);
+    this.prependItem(item);
+  }
+
+  /** Prepend a completed agent conversation card to the feed. */
+  public pushDialogue(msg: DialogueMessage): void {
+    if (this.listEl === null) {
+      return;
+    }
+
+    const item = document.createElement("article");
+    item.className = "feed-item dialogue";
+
+    const meta = this.createMetaRow(
+      "DIALOGUE",
+      msg.sim_time,
+      msg.location ?? "Village",
+    );
+
+    const subject = document.createElement("div");
+    subject.className = "feed-subject";
+    subject.textContent =
+      msg.participant_names.length > 0
+        ? msg.participant_names.join(" ↔ ")
+        : "Conversation";
+
+    const body = document.createElement("div");
+    body.className = "feed-body";
+    const fallbackTurn = msg.turns[0]
+      ? `${msg.turns[0].speaker_name}: ${msg.turns[0].text}`
+      : "";
+    body.textContent = msg.summary.trim() || fallbackTurn;
+
+    const submeta = document.createElement("div");
+    submeta.className = "feed-submeta";
+    const turnCount = msg.turns.length;
+    submeta.textContent = `${turnCount} ${turnCount === 1 ? "turn" : "turns"}`;
+
+    item.append(meta, subject, body, submeta);
+    this.prependItem(item);
+  }
+
+  private createMetaRow(
+    badgeLabel: string,
+    simTime: string,
+    locationLabel: string,
+  ): HTMLDivElement {
+    const meta = document.createElement("div");
+    meta.className = "feed-meta";
+
+    const badge = document.createElement("span");
+    badge.className = "feed-badge";
+    badge.textContent = badgeLabel;
+
+    const details = document.createElement("span");
+    details.textContent = `${simTime} · ${locationLabel}`;
+
+    meta.append(badge, details);
+    return meta;
+  }
+
+  private prependItem(item: HTMLElement): void {
+    if (this.listEl === null) {
+      return;
+    }
+
+    if (this.emptyEl !== null) {
+      this.emptyEl.remove();
+      this.emptyEl = null;
+    }
+
+    this.listEl.prepend(item);
+    while (this.listEl.children.length > MAX_FEED_ITEMS) {
+      this.listEl.lastElementChild?.remove();
+    }
+  }
+}

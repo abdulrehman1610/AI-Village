@@ -59,6 +59,15 @@ updated: 2026-11-23T23:39:00+05:00
 **Depends on:** Phase 2
 **Requirements:** REQ-06, REQ-07, REQ-08, NFR-05
 
+**Plans:**
+- [ ] Plan 3.1: Add Replan/Hourly LLM schemas, prompt templates, gateway helpers, and rumor-preserving MockProvider (Wave 1)
+- [ ] Plan 3.2: Add MemoryStore conversation, event, and relationship query methods with unit tests (Wave 1)
+- [ ] Plan 3.3: Add frontend Dialogue/Event types, WS callbacks, REST apiClient, and Vite /events proxy (Wave 1)
+- [ ] Plan 3.4: Implement hierarchical DailyPlanner, location canonicalization, and AgentBrain cognitive loop (Wave 2)
+- [ ] Plan 3.5: Implement proximity ConversationManager with dual cooldowns, memory summaries, and 2-hop rumor spread (Wave 2)
+- [ ] Plan 3.6: Integrate cognitive loop, conversations, POST /events, and WS broadcasts into SimulationEngine and FastAPI (Wave 3)
+- [ ] Plan 3.7: Render depth>=60 speech bubbles, event pulses, ActivityFeed, God-Mode UI, and input-guarded keydown-C (Wave 4)
+
 ---
 
 ### Phase 4: Reflection, Relationships, Agent Inspector & Time Controls
@@ -91,7 +100,7 @@ updated: 2026-11-23T23:39:00+05:00
 |-------|--------|-------|----------|
 | 1 | ✅ | 6/6 | 100% |
 | 2 | ✅ | 5/5 | 100% |
-| 3 | 🔄 | 0/TBD | — |
+| 3 | 🔄 | 0/7 | — |
 | 4 | ⬜ | 0/TBD | — |
 | 5 | ⬜ | 0/TBD | — |
 | 6 | ⬜ | 0/TBD | — |

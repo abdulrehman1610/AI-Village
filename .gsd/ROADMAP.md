@@ -6,7 +6,7 @@ updated: 2026-11-23T23:39:00+05:00
 
 # Roadmap
 
-> **Current Phase:** 3 - Daily Planning, Conversations & Event Injection (P0 MVP)
+> **Current Phase:** 4 - Reflection, Relationships, Agent Inspector & Time Controls
 > **Status:** planning
 
 ## Must-Haves (from SPEC)
@@ -54,24 +54,25 @@ updated: 2026-11-23T23:39:00+05:00
 ---
 
 ### Phase 3: Daily Planning, Conversations & Event Injection (P0 MVP)
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 **Objective:** Wire the complete agent cognitive loop (Perceive → Remember → Decide → Act) with hierarchical planning (wake-up day plan → hourly blocks → minute actions + replanning on interruption), proximity-triggered turn-by-turn agent conversations (up to 6 turns + memory summarization + WS `dialogue` broadcast), and god-mode event injection (`POST /events` + frontend UI bar) that delivers observations to nearby agents and spreads rumors.
 **Depends on:** Phase 2
 **Requirements:** REQ-06, REQ-07, REQ-08, NFR-05
 
 **Plans:**
-- [ ] Plan 3.1: Add Replan/Hourly LLM schemas, prompt templates, gateway helpers, and rumor-preserving MockProvider (Wave 1)
-- [ ] Plan 3.2: Add MemoryStore conversation, event, and relationship query methods with unit tests (Wave 1)
-- [ ] Plan 3.3: Add frontend Dialogue/Event types, WS callbacks, REST apiClient, and Vite /events proxy (Wave 1)
-- [ ] Plan 3.4: Implement hierarchical DailyPlanner, location canonicalization, and AgentBrain cognitive loop (Wave 2)
-- [ ] Plan 3.5: Implement proximity ConversationManager with dual cooldowns, memory summaries, and 2-hop rumor spread (Wave 2)
-- [ ] Plan 3.6: Integrate cognitive loop, conversations, POST /events, and WS broadcasts into SimulationEngine and FastAPI (Wave 3)
-- [ ] Plan 3.7: Render depth>=60 speech bubbles, event pulses, ActivityFeed, God-Mode UI, and input-guarded keydown-C (Wave 4)
+- [x] Plan 3.1: Add Replan/Hourly LLM schemas, prompt templates, gateway helpers, and rumor-preserving MockProvider (Wave 1)
+- [x] Plan 3.2: Add MemoryStore conversation, event, and relationship query methods with unit tests (Wave 1)
+- [x] Plan 3.3: Add frontend Dialogue/Event types, WS callbacks, REST apiClient, and Vite /events proxy (Wave 1)
+- [x] Plan 3.4: Implement hierarchical DailyPlanner, location canonicalization, and AgentBrain cognitive loop (Wave 2)
+- [x] Plan 3.5: Implement proximity ConversationManager with dual cooldowns, memory summaries, and 2-hop rumor spread (Wave 2)
+- [x] Plan 3.6: Integrate cognitive loop, conversations, POST /events, and WS broadcasts into SimulationEngine and FastAPI (Wave 3)
+- [x] Plan 3.7: Render depth>=60 speech bubbles, event pulses, ActivityFeed, God-Mode UI, and input-guarded keydown-C (Wave 4)
+- [x] Plan 3.8: Gap closure — Guard MockProvider urgent rumor extraction against seeded persona bios and verify 80-tick peaceful baseline stability (Gap Closure)
 
 ---
 
 ### Phase 4: Reflection, Relationships, Agent Inspector & Time Controls
-**Status:** ⬜ Not Started
+**Status:** 🔄 In Progress
 **Objective:** Add threshold-triggered agent reflections (salient questions → evidence retrieval → cited insights stored as memories), pairwise relationship affinity and notes updates on interactions, the clickable Agent Inspector frontend panel (`GET /agents/{id}` showing plan, memories, mood, relationships), and simulation time controls (`POST /sim/start`, `/sim/pause`, `/sim/speed` for 1x/4x/16x).
 **Depends on:** Phase 3
 **Requirements:** REQ-09, REQ-10 (backend), REQ-11, REQ-12
@@ -100,8 +101,8 @@ updated: 2026-11-23T23:39:00+05:00
 |-------|--------|-------|----------|
 | 1 | ✅ | 6/6 | 100% |
 | 2 | ✅ | 5/5 | 100% |
-| 3 | 🔄 | 0/7 | — |
-| 4 | ⬜ | 0/TBD | — |
+| 3 | ✅ | 8/8 | 100% |
+| 4 | 🔄 | 0/TBD | — |
 | 5 | ⬜ | 0/TBD | — |
 | 6 | ⬜ | 0/TBD | — |
 
@@ -113,7 +114,7 @@ updated: 2026-11-23T23:39:00+05:00
 |-------|---------|-----------|----------|
 | 1 | 2026-11-23 | 2026-11-24 | ~50m |
 | 2 | 2026-11-24 | 2026-11-24 | ~70m |
-| 3 | 2026-11-24 | — | — |
-| 4 | — | — | — |
+| 3 | 2026-11-24 | 2026-11-24 | ~90m |
+| 4 | 2026-11-24 | — | — |
 | 5 | — | — | — |
 | 6 | — | — | — |

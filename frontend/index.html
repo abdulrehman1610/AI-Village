@@ -16,10 +16,20 @@
         <div class="hud-clock">
           <span id="sim-time">Day 1 · 07:00</span>
           <span id="sim-tick">Tick 0</span>
+          <div
+            id="time-controls"
+            class="time-controls"
+            aria-label="Simulation playback controls"
+          ></div>
         </div>
         <div id="agents-bar" aria-label="Active agents"></div>
       </header>
       <main id="stage">
+        <aside
+          id="agent-inspector"
+          class="agent-inspector hidden"
+          aria-label="Agent inspector"
+        ></aside>
         <div id="game-container"></div>
         <aside id="activity-feed" aria-label="Live village activity"></aside>
       </main>
@@ -46,7 +56,7 @@
         </form>
       </section>
       <footer id="controls-hint">
-        Drag to pan · Scroll to zoom · Press C for collision grid
+        Click agent to inspect · Drag to pan · Scroll to zoom · Press C for collision grid
       </footer>
     </div>
     <script type="module" src="/src/main.ts"></script>

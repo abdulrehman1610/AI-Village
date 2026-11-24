@@ -6,7 +6,7 @@ import pytest_asyncio
 
 from app.db import Database
 from memory.embeddings import EmbeddingService
-from memory.models import AgentRecord
+from memory.models import AgentRecord, RelationshipRecord
 from memory.store import MemoryStore
 
 
@@ -194,3 +194,129 @@ async def test_upsert_and_symmetric_get_relationship(store: MemoryStore) -> None
 
     assert await store.get_relationship("maya", "noah") is None
     assert await store.get_relationship("maya", "maya") is None
+
+
+async def test_upsert_relationship_canonicalizes_pair_and_rejects_self_loop(
+    store: MemoryStore,
+) -> None:
+    """Verify canonical (min, max) keys, clamping, consolidation, and self-loop rejection."""
+    created = await store.upsert_relationship(
+        "maya",
+        "liam",
+        affinity=0.4,
+        notes="First chat",
+        last_interaction_tick=10,
+    )
+    assert created.agent_a == "liam"
+    assert created.agent_b == "maya"
+
+    updated = await store.upsert_relationship(
+        "liam",
+        "maya",
+        affinity=1.5,
+        notes="Close friends",
+        last_interaction_tick=25,
+    )
+    assert updated.agent_a == "liam"
+    assert updated.agent_b == "maya"
+    all_rels = await store.list_relationships()
+    assert len(all_rels) == 1
+    assert all_rels[0].affinity == pytest.approx(1.0)
+    assert all_rels[0].notes == "Close friends"
+    assert all_rels[0].last_interaction_tick == 25
+
+    # Seed a legacy non-canonical reversed row and verify upsert consolidates it cleanly.
+    async with store.db.session() as session:
+        session.add(
+            RelationshipRecord(
+                agent_a="samuel",
+                agent_b="sam",
+                affinity=0.2,
+                notes="Legacy reversed row",
+                last_interaction_tick=5,
+            )
+        )
+        await session.commit()
+
+    consolidated = await store.upsert_relationship(
+        "sam",
+        "samuel",
+        affinity=-1.8,
+        notes="Consolidated canonical row",
+        last_interaction_tick=30,
+    )
+    assert consolidated.agent_a == "sam"
+    assert consolidated.agent_b == "samuel"
+    assert consolidated.affinity == pytest.approx(-1.0)
+    sam_rels = await store.list_relationships("sam")
+    assert len(sam_rels) == 1
+    assert sam_rels[0].agent_a == "sam"
+    assert sam_rels[0].agent_b == "samuel"
+    assert sam_rels[0].notes == "Consolidated canonical row"
+
+    with pytest.raises(ValueError, match="itself"):
+        await store.upsert_relationship("maya", "maya", affinity=0.5)
+
+
+async def test_update_agent_states_with_moods_and_get_memories_by_ids(
+    store: MemoryStore,
+) -> None:
+    """Verify mood persistence and agent-scoped get_memories_by_ids lookups."""
+    await store.update_agent_states(
+        [
+            ("maya", 7, 8, "Baking tarts", '["Bake pastries"]'),
+            ("liam", 30, 6, "Brewing espresso", '["Serve coffee"]'),
+        ],
+        moods={"maya": "cheerful"},
+    )
+    maya = await store.get_agent("maya")
+    liam = await store.get_agent("liam")
+    assert maya is not None
+    assert liam is not None
+    assert maya.mood == "cheerful"
+    assert liam.mood == "calm"
+
+    await store.update_agent_states([], moods={"liam": "focused"})
+    reloaded_liam = await store.get_agent("liam")
+    assert reloaded_liam is not None
+    assert reloaded_liam.mood == "focused"
+
+    maya.mood = "reflective"
+    await store.upsert_agent(maya)
+    reloaded_maya = await store.get_agent("maya")
+    assert reloaded_maya is not None
+    assert reloaded_maya.mood == "reflective"
+
+    m1 = await store.add_memory(
+        agent_id="maya",
+        memory_type="observation",
+        text="Checked the morning oven temperature.",
+        importance=4,
+        created_tick=10,
+    )
+    m2 = await store.add_memory(
+        agent_id="maya",
+        memory_type="observation",
+        text="Chat with Sam about flour delivery.",
+        importance=6,
+        created_tick=20,
+    )
+    liam_mem = await store.add_memory(
+        agent_id="liam",
+        memory_type="observation",
+        text="Cleaned the espresso machine.",
+        importance=5,
+        created_tick=25,
+    )
+    assert m1.id is not None
+    assert m2.id is not None
+    assert liam_mem.id is not None
+
+    fetched = await store.get_memories_by_ids(
+        "maya",
+        [m1.id, m2.id, m1.id, liam_mem.id, 99999, 0, -2],
+    )
+    assert [record.id for record in fetched] == [m2.id, m1.id]
+    assert await store.get_memories_by_ids("maya", []) == []
+    assert await store.get_memories_by_ids("maya", [0, -1, 99999]) == []
+    assert await store.get_memories_by_ids("maya", [liam_mem.id]) == []

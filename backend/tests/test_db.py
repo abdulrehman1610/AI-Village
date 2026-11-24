@@ -1,13 +1,16 @@
 import asyncio
+import sqlite3
 from collections.abc import AsyncIterator
 from pathlib import Path
 
 import numpy as np
 import pytest
 import pytest_asyncio
+from pydantic import ValidationError
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import col, select
 
+from app.config import Settings
 from app.db import Database
 from memory.models import (
     AgentRecord,
@@ -367,3 +370,103 @@ async def test_file_backed_wal_mode_and_persistence(tmp_path: Path) -> None:
             assert state.seed == 99
     finally:
         await reopened_db.dispose()
+
+
+async def test_agent_mood_default_and_roundtrip(db: Database) -> None:
+    """Verify AgentRecord.mood defaults to 'calm' and persists updated mood values."""
+    async with db.session() as session:
+        session.add(
+            AgentRecord(
+                id="maya",
+                name="Maya Lin",
+                persona_json='{"role": "Baker"}',
+                home_location="Home_Maya",
+                x=5,
+                y=6,
+                current_plan_json='["Open bakery"]',
+            )
+        )
+        await session.commit()
+
+    async with db.session() as session:
+        agent = await session.get(AgentRecord, "maya")
+        assert agent is not None
+        assert agent.mood == "calm"
+        assert agent.current_plan_json == '["Open bakery"]'
+        agent.mood = "reflective"
+        session.add(agent)
+        await session.commit()
+
+    async with db.session() as session:
+        reloaded = await session.get(AgentRecord, "maya")
+        assert reloaded is not None
+        assert reloaded.mood == "reflective"
+        assert reloaded.current_plan_json == '["Open bakery"]'
+
+
+async def test_init_models_migrates_legacy_agents_table_missing_mood(tmp_path: Path) -> None:
+    """Verify init_models idempotently adds agents.mood to legacy SQLite DBs."""
+    db_file = tmp_path / "legacy_village.db"
+    conn = sqlite3.connect(db_file)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE agents (
+                id VARCHAR NOT NULL PRIMARY KEY,
+                name VARCHAR NOT NULL,
+                persona_json VARCHAR NOT NULL,
+                home_location VARCHAR NOT NULL,
+                x INTEGER NOT NULL,
+                y INTEGER NOT NULL,
+                current_action VARCHAR NOT NULL,
+                current_plan_json VARCHAR NOT NULL
+            )
+            """
+        )
+        conn.execute(
+            """
+            INSERT INTO agents (
+                id, name, persona_json, home_location, x, y, current_action, current_plan_json
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "maya",
+                "Maya Lin",
+                '{"role": "Baker"}',
+                "Home_Maya",
+                5,
+                6,
+                "Idle",
+                '["Open bakery"]',
+            ),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    database = Database(f"sqlite+aiosqlite:///{db_file.as_posix()}")
+    try:
+        await database.init_models()
+        await database.init_models()
+
+        async with database.session() as session:
+            sa_conn = await session.connection()
+            pragma = await sa_conn.exec_driver_sql("PRAGMA table_info('agents')")
+            column_names = {str(list(row)[1]) for row in pragma.fetchall()}
+            assert "mood" in column_names
+
+            maya = await session.get(AgentRecord, "maya")
+            assert maya is not None
+            assert maya.name == "Maya Lin"
+            assert maya.mood == "calm"
+            assert maya.current_plan_json == '["Open bakery"]'
+    finally:
+        await database.dispose()
+
+
+def test_settings_reflection_threshold_default_and_validation() -> None:
+    """Verify Settings.reflection_threshold defaults to 150 and enforces >= 1."""
+    assert Settings().reflection_threshold == 150
+    assert Settings(reflection_threshold=50).reflection_threshold == 50
+    with pytest.raises(ValidationError):
+        Settings(reflection_threshold=0)

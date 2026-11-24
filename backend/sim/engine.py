@@ -3,13 +3,19 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, field
 from typing import Literal
 
 from pydantic import BaseModel
 
+from agents.personas import SEEDED_PERSONAS, AgentPersona
+from llm.gateway import LLMGateway
+from memory.models import AgentRecord
+from memory.retrieval import MemoryRetriever
+from memory.store import MemoryCreate, MemoryStore
 from sim.astar import find_path
 from sim.clock import SimClock
 from sim.world import GridPos, WorldMap
@@ -17,41 +23,6 @@ from sim.world import GridPos, WorldMap
 logger = logging.getLogger(__name__)
 
 MAX_STALL_TICKS = 15
-
-_SEEDED_AGENT_SPECS: tuple[tuple[str, str, str, int, str, tuple[str, ...]], ...] = (
-    (
-        "maya",
-        "Maya",
-        "Baker",
-        0,
-        "Home_Maya",
-        ("Bakery", "Cafe", "Market", "Town Square", "Home_Maya"),
-    ),
-    (
-        "liam",
-        "Liam",
-        "Barista",
-        1,
-        "Home_Liam",
-        ("Cafe", "Town Square", "Park", "Market", "Home_Liam"),
-    ),
-    (
-        "elena",
-        "Elena",
-        "Botanist",
-        2,
-        "Home_Elena",
-        ("Park", "Library", "Cafe", "Town Square", "Home_Elena"),
-    ),
-    (
-        "noah",
-        "Noah",
-        "Merchant",
-        3,
-        "Home_Noah",
-        ("Market", "Town Square", "Bakery", "Park", "Home_Noah"),
-    ),
-)
 
 
 class AgentSnapshot(BaseModel):
@@ -90,6 +61,7 @@ class AgentEntity:
     home_location: str
     x: int
     y: int
+    persona: AgentPersona
     target_location: str | None = None
     path: list[GridPos] = field(default_factory=list)
     current_action: str = "Idle"
@@ -113,36 +85,46 @@ class AgentEntity:
         )
 
 
-def _create_initial_agents(world: WorldMap) -> dict[str, AgentEntity]:
-    """Seed the initial villager agents at their distinct home anchors."""
+def _create_initial_agents(
+    world: WorldMap,
+    personas: Sequence[AgentPersona] = SEEDED_PERSONAS,
+) -> dict[str, AgentEntity]:
+    """Seed the initial villager agents at their distinct home or shop anchors."""
     agents: dict[str, AgentEntity] = {}
     occupied: set[GridPos] = set()
 
-    for agent_id, name, role, sprite_index, home_loc, routine in _SEEDED_AGENT_SPECS:
-        anchor = world.get_location(home_loc).anchor
+    for persona in personas:
+        if persona.id in agents:
+            raise ValueError(f"Duplicate persona id: {persona.id!r}")
+        anchor = world.get_location(persona.home_location).anchor
         spawn = anchor
         if spawn in occupied:
             fallback = world.find_free_adjacent(anchor[0], anchor[1], occupied, max_radius=5)
             if fallback is None:
-                raise ValueError(f"No free spawn tile near {home_loc!r} for agent {agent_id!r}")
+                raise ValueError(
+                    f"No free spawn tile near {persona.home_location!r} "
+                    f"for agent {persona.id!r}"
+                )
             spawn = fallback
         occupied.add(spawn)
 
-        agents[agent_id] = AgentEntity(
-            id=agent_id,
-            name=name,
-            role=role,
-            sprite_index=sprite_index,
-            home_location=home_loc,
+        routine = list(persona.default_routine)
+        agents[persona.id] = AgentEntity(
+            id=persona.id,
+            name=persona.name,
+            role=persona.role,
+            sprite_index=persona.sprite_index,
+            home_location=persona.home_location,
             x=spawn[0],
             y=spawn[1],
+            persona=persona,
             target_location=None,
             path=[],
-            current_action=f"At {home_loc}",
+            current_action=f"At {persona.home_location}",
             dwell_ticks_remaining=0,
             stall_ticks=0,
-            routine=list(routine),
-            routine_index=len(routine) - 1,
+            routine=routine,
+            routine_index=len(routine) - 1 if routine else -1,
             visited_locations=set(),
         )
 
@@ -161,6 +143,11 @@ class SimulationEngine:
         clock: SimClock | None = None,
         seed: int = 42,
         dwell_ticks: int = 4,
+        *,
+        personas: Sequence[AgentPersona] | None = None,
+        memory_store: MemoryStore | None = None,
+        retriever: MemoryRetriever | None = None,
+        llm_gateway: LLMGateway | None = None,
     ) -> None:
         if isinstance(dwell_ticks, bool) or dwell_ticks < 0:
             raise ValueError(f"dwell_ticks must be >= 0, got {dwell_ticks!r}")
@@ -168,11 +155,89 @@ class SimulationEngine:
         self.clock = clock if clock is not None else SimClock()
         self.seed = seed
         self.dwell_ticks = dwell_ticks
-        self.agents: dict[str, AgentEntity] = _create_initial_agents(world)
+        resolved_personas = SEEDED_PERSONAS if personas is None else personas
+        self.agents: dict[str, AgentEntity] = _create_initial_agents(world, resolved_personas)
+        self.memory_store = memory_store
+        self.retriever = retriever
+        self.llm_gateway = llm_gateway
         self._step_lock = asyncio.Lock()
         self._tick_callbacks: list[TickCallback] = []
         self._loop_task: asyncio.Task[None] | None = None
         self._stop_requested = False
+
+    async def initialize_persistence(self) -> None:
+        """Upsert agents, seed initial persona memories idempotently, and ensure sim_state."""
+        if self.memory_store is None:
+            return
+
+        seed_items: list[MemoryCreate] = []
+        for agent in self.agents.values():
+            await self.memory_store.upsert_agent(
+                AgentRecord(
+                    id=agent.id,
+                    name=agent.name,
+                    persona_json=agent.persona.to_persona_json(),
+                    home_location=agent.home_location,
+                    x=agent.x,
+                    y=agent.y,
+                    current_action=agent.current_action,
+                    current_plan_json=json.dumps(agent.routine),
+                )
+            )
+            existing = await self.memory_store.list_memories(agent.id, limit=1)
+            if not existing:
+                seed_items.append(
+                    MemoryCreate(
+                        agent_id=agent.id,
+                        memory_type="observation",
+                        text=agent.persona.summary_text(),
+                        importance=6,
+                        created_tick=self.clock.tick,
+                    )
+                )
+                for goal in agent.persona.starting_goals:
+                    seed_items.append(
+                        MemoryCreate(
+                            agent_id=agent.id,
+                            memory_type="observation",
+                            text=f"{agent.name}'s goal: {goal}",
+                            importance=6,
+                            created_tick=self.clock.tick,
+                        )
+                    )
+
+        if seed_items:
+            await self.memory_store.add_memories_batch(seed_items)
+
+        await self.memory_store.get_or_create_sim_state(
+            tick=self.clock.tick,
+            sim_time=self.clock.sim_time_str,
+            speed=self.clock.speed,
+            seed=self.seed,
+        )
+
+    async def persist_tick_state(self) -> None:
+        """Persist current agent positions, actions, plans, and simulation clock to SQLite."""
+        if self.memory_store is None:
+            return
+
+        states = [
+            (
+                agent.id,
+                agent.x,
+                agent.y,
+                agent.current_action,
+                json.dumps(agent.routine),
+            )
+            for agent in self.agents.values()
+        ]
+        await self.memory_store.update_agent_states(states)
+        await self.memory_store.save_sim_state(
+            tick=self.clock.tick,
+            sim_time=self.clock.sim_time_str,
+            speed=self.clock.speed,
+            seed=self.seed,
+        )
 
     def register_tick_callback(self, callback: TickCallback) -> None:
         """Register an async callback invoked with each emitted TickPayload."""
@@ -321,6 +386,8 @@ class SimulationEngine:
                 self._step_agent(self.agents[agent_id], reserved_tiles)
             self.clock.advance()
             payload = self.build_tick_payload()
+            if self.memory_store is not None:
+                await self.persist_tick_state()
 
         for callback in list(self._tick_callbacks):
             try:

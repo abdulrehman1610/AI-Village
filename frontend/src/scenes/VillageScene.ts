@@ -3,11 +3,13 @@ import type {
   AgentSnapshot,
   DialogueMessage,
   EventMessage,
+  ReflectionMessage,
   TickMessage,
 } from "../types/sim";
 
 interface AgentVisual {
   container: Phaser.GameObjects.Container;
+  selectionRing: Phaser.GameObjects.Arc;
   sprite: Phaser.GameObjects.Sprite;
   nameText: Phaser.GameObjects.Text;
   lastX: number;
@@ -33,6 +35,22 @@ const MAX_BUBBLE_CHARS = 160;
 const EVENT_RING_DEPTH = 55;
 const EVENT_BANNER_DEPTH = 65;
 const EVENT_DURATION_MS = 2600;
+const REFLECTION_DURATION_MS = 2400;
+const DRAG_THRESHOLD_PX = 5;
+
+interface TransientCueOptions {
+  x: number;
+  y: number;
+  fillColor: number;
+  strokeColor: number;
+  maxScale: number;
+  durationMs: number;
+  text: string;
+  textColor: string;
+  backgroundColor: string;
+  bannerLiftPx: number;
+  wordWrapWidth: number;
+}
 
 function isTextInputFocused(): boolean {
   const active = document.activeElement;
@@ -59,10 +77,13 @@ export class VillageScene extends Phaser.Scene {
   private tileSize = DEFAULT_TILE_SIZE;
 
   private isDragging = false;
+  private hasPanned = false;
   private dragStartX = 0;
   private dragStartY = 0;
   private camStartScrollX = 0;
   private camStartScrollY = 0;
+  private selectedAgentId: string | null = null;
+  private onAgentSelect: ((agentId: string) => void) | null = null;
 
   constructor() {
     super({ key: "VillageScene" });
@@ -124,6 +145,19 @@ export class VillageScene extends Phaser.Scene {
   public setKeyboardEnabled(enabled: boolean): void {
     if (this.input.keyboard !== null) {
       this.input.keyboard.enabled = enabled;
+    }
+  }
+
+  /** Register a callback invoked when an agent sprite is clicked without dragging. */
+  public setOnAgentSelect(callback: ((agentId: string) => void) | null): void {
+    this.onAgentSelect = callback;
+  }
+
+  /** Highlight the currently selected agent on the map or clear selection when null. */
+  public setSelectedAgent(agentId: string | null): void {
+    this.selectedAgentId = agentId;
+    for (const [id, visual] of this.agentVisuals.entries()) {
+      visual.selectionRing.setVisible(id === agentId);
     }
   }
 
@@ -202,17 +236,64 @@ export class VillageScene extends Phaser.Scene {
     }
 
     const target = this.resolveEventTarget(msg.location);
+    const rawText = msg.text.trim();
+    const truncated =
+      rawText.length > 96 ? `${rawText.slice(0, 93).trimEnd()}...` : rawText;
+    const prefix = msg.location ? `[${msg.location}] ` : "[Village Event] ";
+
+    this.spawnTransientCue({
+      x: target.x,
+      y: target.y,
+      fillColor: 0xf59e0b,
+      strokeColor: 0xfbbf24,
+      maxScale: 4.5,
+      durationMs: EVENT_DURATION_MS,
+      text: `${prefix}${truncated}`,
+      textColor: "#fef3c7",
+      backgroundColor: "rgba(120, 53, 15, 0.92)",
+      bannerLiftPx: 28,
+      wordWrapWidth: 260,
+    });
+  }
+
+  /** Display a transient violet halo and badge when an agent synthesizes a reflection. */
+  public showReflection(msg: ReflectionMessage): void {
+    if (!this.isReady) {
+      return;
+    }
+
+    const visual = this.agentVisuals.get(msg.agent_id);
+    const target = visual
+      ? { x: visual.container.x, y: visual.container.y }
+      : { x: this.cameras.main.midPoint.x, y: this.cameras.main.midPoint.y };
+
+    this.spawnTransientCue({
+      x: target.x,
+      y: target.y,
+      fillColor: 0xa855f7,
+      strokeColor: 0xc084fc,
+      maxScale: 3.2,
+      durationMs: REFLECTION_DURATION_MS,
+      text: `${msg.agent_name} reflected`,
+      textColor: "#f3e8ff",
+      backgroundColor: "rgba(88, 28, 135, 0.92)",
+      bannerLiftPx: 22,
+      wordWrapWidth: 220,
+    });
+  }
+
+  private spawnTransientCue(options: TransientCueOptions): void {
     const ring: Phaser.GameObjects.Arc = this.add
-      .circle(target.x, target.y, 16, 0xf59e0b, 0.2)
-      .setStrokeStyle(3, 0xfbbf24, 0.95)
+      .circle(options.x, options.y, 16, options.fillColor, 0.2)
+      .setStrokeStyle(3, options.strokeColor, 0.95)
       .setDepth(EVENT_RING_DEPTH);
     this.transientEventObjects.add(ring);
 
     this.tweens.add({
       targets: ring,
-      scale: { from: 0.75, to: 4.5 },
+      scale: { from: 0.75, to: options.maxScale },
       alpha: { from: 0.95, to: 0 },
-      duration: EVENT_DURATION_MS,
+      duration: options.durationMs,
       ease: "Cubic.easeOut",
       onComplete: () => {
         this.transientEventObjects.delete(ring);
@@ -220,19 +301,15 @@ export class VillageScene extends Phaser.Scene {
       },
     });
 
-    const rawText = msg.text.trim();
-    const truncated =
-      rawText.length > 96 ? `${rawText.slice(0, 93).trimEnd()}...` : rawText;
-    const prefix = msg.location ? `[${msg.location}] ` : "[Village Event] ";
     const banner = this.add
-      .text(target.x, target.y - 28, `${prefix}${truncated}`, {
+      .text(options.x, options.y - 28, options.text, {
         fontFamily: "Inter, system-ui, sans-serif",
         fontSize: "12px",
         fontStyle: "bold",
-        color: "#fef3c7",
-        backgroundColor: "rgba(120, 53, 15, 0.92)",
+        color: options.textColor,
+        backgroundColor: options.backgroundColor,
         padding: { left: 8, right: 8, top: 5, bottom: 5 },
-        wordWrap: { width: 260, useAdvancedWrap: true },
+        wordWrap: { width: options.wordWrapWidth, useAdvancedWrap: true },
         align: "center",
       })
       .setOrigin(0.5, 1)
@@ -242,16 +319,16 @@ export class VillageScene extends Phaser.Scene {
 
     this.tweens.add({
       targets: banner,
-      y: target.y - 56,
-      duration: EVENT_DURATION_MS,
+      y: options.y - 28 - options.bannerLiftPx,
+      duration: options.durationMs,
       ease: "Sine.easeOut",
     });
 
     this.tweens.add({
       targets: banner,
       alpha: 0,
-      delay: Math.floor(EVENT_DURATION_MS * 0.6),
-      duration: Math.ceil(EVENT_DURATION_MS * 0.4),
+      delay: Math.floor(options.durationMs * 0.6),
+      duration: Math.ceil(options.durationMs * 0.4),
       ease: "Quad.easeIn",
       onComplete: () => {
         this.transientEventObjects.delete(banner);
@@ -431,6 +508,7 @@ export class VillageScene extends Phaser.Scene {
     this.input.on("pointerdown", (pointer: Phaser.Input.Pointer) => {
       if (pointer.leftButtonDown() || pointer.middleButtonDown()) {
         this.isDragging = true;
+        this.hasPanned = false;
         this.dragStartX = pointer.x;
         this.dragStartY = pointer.y;
         this.camStartScrollX = cam.scrollX;
@@ -445,6 +523,12 @@ export class VillageScene extends Phaser.Scene {
       if (!pointer.leftButtonDown() && !pointer.middleButtonDown()) {
         this.isDragging = false;
         return;
+      }
+      if (
+        Math.hypot(pointer.x - this.dragStartX, pointer.y - this.dragStartY) >
+        DRAG_THRESHOLD_PX
+      ) {
+        this.hasPanned = true;
       }
       const dx = (pointer.x - this.dragStartX) / cam.zoom;
       const dy = (pointer.y - this.dragStartY) / cam.zoom;
@@ -485,7 +569,25 @@ export class VillageScene extends Phaser.Scene {
 
     const existing = this.agentVisuals.get(agent.id);
     if (existing === undefined) {
-      const sprite = this.add.sprite(0, 0, "villagers", baseFrame);
+      const selectionRing = this.add
+        .circle(0, 8, 16, 0x38bdf8, 0.14)
+        .setStrokeStyle(2, 0x38bdf8, 0.95)
+        .setVisible(agent.id === this.selectedAgentId);
+
+      const sprite = this.add
+        .sprite(0, 0, "villagers", baseFrame)
+        .setInteractive({ useHandCursor: true });
+      sprite.on("pointerup", (pointer: Phaser.Input.Pointer) => {
+        if (
+          !this.hasPanned &&
+          Math.hypot(pointer.x - this.dragStartX, pointer.y - this.dragStartY) <=
+            DRAG_THRESHOLD_PX &&
+          pointer.button === 0
+        ) {
+          this.onAgentSelect?.(agent.id);
+        }
+      });
+
       const nameText = this.add
         .text(0, -20, agent.name, {
           fontFamily: "Inter, system-ui, sans-serif",
@@ -499,11 +601,12 @@ export class VillageScene extends Phaser.Scene {
       nameText.setResolution(2);
 
       const container = this.add
-        .container(targetPx, targetPy, [sprite, nameText])
+        .container(targetPx, targetPy, [selectionRing, sprite, nameText])
         .setDepth(10 + agent.y);
 
       this.agentVisuals.set(agent.id, {
         container,
+        selectionRing,
         sprite,
         nameText,
         lastX: agent.x,

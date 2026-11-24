@@ -1,4 +1,8 @@
-import type { DialogueMessage, EventMessage } from "../types/sim";
+import type {
+  DialogueMessage,
+  EventMessage,
+  ReflectionMessage,
+} from "../types/sim";
 
 const MAX_FEED_ITEMS = 25;
 
@@ -99,6 +103,36 @@ export class ActivityFeed {
     submeta.textContent = `${turnCount} ${turnCount === 1 ? "turn" : "turns"}`;
 
     item.append(meta, subject, body, submeta);
+    this.prependItem(item);
+  }
+
+  /** Prepend a synthesized agent reflection card to the feed. */
+  public pushReflection(msg: ReflectionMessage): void {
+    if (this.listEl === null) {
+      return;
+    }
+
+    const item = document.createElement("article");
+    item.className = "feed-item reflection";
+
+    const meta = this.createMetaRow(
+      "REFLECTION",
+      msg.sim_time,
+      msg.agent_name,
+    );
+
+    const body = document.createElement("div");
+    body.className = "feed-body";
+    body.textContent = msg.insight;
+
+    const submeta = document.createElement("div");
+    submeta.className = "feed-submeta";
+    submeta.textContent =
+      msg.cited_memory_ids.length > 0
+        ? `Cited: #${msg.cited_memory_ids.join(", #")}`
+        : "Synthesized insight";
+
+    item.append(meta, body, submeta);
     this.prependItem(item);
   }
 

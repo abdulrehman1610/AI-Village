@@ -11,9 +11,30 @@ from fastapi.middleware.cors import CORSMiddleware
 from api import rest, ws
 from api.ws import ConnectionManager
 from app.config import Settings, get_settings
+from app.db import Database
+from llm.gateway import LLMGateway
+from llm.providers.base import LLMProvider
+from llm.providers.gemini import GeminiProvider
+from llm.providers.mock import MockProvider
+from memory.embeddings import EmbeddingService
+from memory.retrieval import MemoryRetriever
+from memory.store import MemoryStore
 from sim.clock import SimClock
 from sim.engine import SimulationEngine, TickPayload
 from sim.world import WorldMap
+
+
+def _build_llm_provider(settings: Settings) -> LLMProvider:
+    """Instantiate the configured primary LLM provider from application settings."""
+    mode = settings.llm_provider.strip().lower()
+    if mode == "mock":
+        return MockProvider(seed=settings.sim_seed)
+    if mode == "gemini":
+        return GeminiProvider(
+            api_key=settings.gemini_api_key,
+            default_model=settings.gemini_routine_model,
+        )
+    raise ValueError(f"Unsupported llm_provider: {settings.llm_provider!r}")
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -22,35 +43,77 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        world = WorldMap.from_tiled_json(resolved_settings.resolved_map_path())
-        clock = SimClock(
-            speed=resolved_settings.sim_speed,
-            base_tick_seconds=resolved_settings.sim_tick_seconds,
-        )
-        engine = SimulationEngine(
-            world=world,
-            clock=clock,
-            seed=resolved_settings.sim_seed,
-        )
-        ws_manager = ConnectionManager()
+        db = Database(resolved_settings.resolved_database_url())
+        engine: SimulationEngine | None = None
 
-        async def _broadcast(payload: TickPayload) -> None:
-            await ws_manager.broadcast_json(payload.model_dump())
-
-        engine.register_tick_callback(_broadcast)
-
-        app.state.settings = resolved_settings
-        app.state.world = world
-        app.state.clock = clock
-        app.state.engine = engine
-        app.state.ws_manager = ws_manager
-
-        if resolved_settings.sim_auto_start:
-            await engine.start_loop()
         try:
+            await db.init_models()
+            embedding_service = EmbeddingService.from_mode(
+                resolved_settings.resolved_embedding_provider()
+            )
+            memory_store = MemoryStore(db=db, embedding_service=embedding_service)
+            memory_retriever = MemoryRetriever(
+                store=memory_store,
+                embedding_service=embedding_service,
+                w_recency=resolved_settings.retrieval_w_recency,
+                w_importance=resolved_settings.retrieval_w_importance,
+                w_relevance=resolved_settings.retrieval_w_relevance,
+                decay_per_hour=resolved_settings.retrieval_decay_per_hour,
+                default_top_k=resolved_settings.retrieval_top_k,
+            )
+            llm_gateway = LLMGateway(
+                provider=_build_llm_provider(resolved_settings),
+                fallback_provider=MockProvider(seed=resolved_settings.sim_seed),
+                db=db,
+                daily_budget_usd=resolved_settings.llm_daily_budget_usd,
+                daily_token_limit=resolved_settings.llm_daily_token_limit,
+                max_retries=resolved_settings.llm_max_retries,
+                routine_model=resolved_settings.gemini_routine_model,
+                planning_model=resolved_settings.gemini_planning_model,
+                seed=resolved_settings.sim_seed,
+            )
+
+            world = WorldMap.from_tiled_json(resolved_settings.resolved_map_path())
+            clock = SimClock(
+                speed=resolved_settings.sim_speed,
+                base_tick_seconds=resolved_settings.sim_tick_seconds,
+            )
+            engine = SimulationEngine(
+                world=world,
+                clock=clock,
+                seed=resolved_settings.sim_seed,
+                memory_store=memory_store,
+                retriever=memory_retriever,
+                llm_gateway=llm_gateway,
+            )
+            await engine.initialize_persistence()
+            ws_manager = ConnectionManager()
+
+            async def _broadcast(payload: TickPayload) -> None:
+                await ws_manager.broadcast_json(payload.model_dump())
+
+            engine.register_tick_callback(_broadcast)
+
+            app.state.settings = resolved_settings
+            app.state.db = db
+            app.state.embedding_service = embedding_service
+            app.state.memory_store = memory_store
+            app.state.memory_retriever = memory_retriever
+            app.state.llm_gateway = llm_gateway
+            app.state.world = world
+            app.state.clock = clock
+            app.state.engine = engine
+            app.state.ws_manager = ws_manager
+
+            if resolved_settings.sim_auto_start:
+                await engine.start_loop()
             yield
         finally:
-            await engine.stop_loop()
+            try:
+                if engine is not None:
+                    await engine.stop_loop()
+            finally:
+                await db.dispose()
 
     application = FastAPI(title="AI Village API", version="0.1.0", lifespan=lifespan)
     application.add_middleware(

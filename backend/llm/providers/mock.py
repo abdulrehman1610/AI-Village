@@ -78,15 +78,25 @@ _METADATA_LINE_PREFIXES: tuple[str, ...] = (
     "speaker current activity:",
     "listener current activity:",
     "remaining schedule:",
+    "prior relationship:",
     "instructions:",
     "context memories:",
+    "recent memories:",
+    "salient questions:",
+    "evidence memories:",
     "transcript:",
+    "q1.",
+    "q2.",
+    "q3.",
     "create a daily schedule",
     "decompose the active schedule",
     "update the remainder of this villager",
     "decide whether ",
     "generate the next spoken reply",
     "summarize the exchange",
+    "synthesize ",
+    "generate 3 ",
+    "ask 3 ",
     "- return ",
     "- every ",
     "- keep ",
@@ -272,24 +282,37 @@ class MockProvider:
         if response_model is ConversationSummaryResponse:
             topic = _extract_salient_topic(prompt)
             delta = round(((digest[0] % 11) - 3) * 0.05, 2)
+            friendly_moods = ("warm", "cheerful", "engaged", "calm")
             if topic is not None:
                 participants = _extract_participants(prompt)
                 return {
                     "summary": f"{participants} discussed: {topic}",
                     "affinity_delta": delta,
                     "relationship_note": f"Shared urgent update about {topic[:60]}.",
+                    "speaker_a_mood": "concerned",
+                    "speaker_b_mood": "alert",
                 }
             return {
                 "summary": _NEUTRAL_ROUTINE_SUMMARY,
                 "affinity_delta": delta,
                 "relationship_note": "Cordial conversation in the village.",
+                "speaker_a_mood": friendly_moods[digest[1] % len(friendly_moods)],
+                "speaker_b_mood": friendly_moods[digest[2] % len(friendly_moods)],
             }
         if response_model is SalientQuestionsResponse:
+            topic = _extract_salient_topic(prompt)
             start = digest[0] % len(_QUESTION_POOL)
-            questions = [
-                _QUESTION_POOL[(start + offset) % len(_QUESTION_POOL)]
-                for offset in range(3)
-            ]
+            if topic is not None:
+                questions = [
+                    f"How should I respond to {topic} given my daily priorities?",
+                    _QUESTION_POOL[start],
+                    _QUESTION_POOL[(start + 1) % len(_QUESTION_POOL)],
+                ]
+            else:
+                questions = [
+                    _QUESTION_POOL[(start + offset) % len(_QUESTION_POOL)]
+                    for offset in range(3)
+                ]
             return {"questions": questions}
         if response_model is ReflectionInsight:
             cited = _extract_cited_ids(prompt)
@@ -299,8 +322,30 @@ class MockProvider:
             }
         if response_model is ReflectionResponse:
             cited = _extract_cited_ids(prompt)
+            topic = _extract_salient_topic(prompt)
             count = 1 + (digest[0] % 2)
             start = digest[1] % len(_INSIGHT_POOL)
+            if topic is not None:
+                insights: list[dict[str, Any]] = [
+                    {
+                        "insight": (
+                            f"The recent news about {topic} highlights how quickly "
+                            "village priorities shift."
+                        ),
+                        "cited_memory_ids": cited,
+                    }
+                ]
+                if count > 1:
+                    insights.append(
+                        {
+                            "insight": _INSIGHT_POOL[start],
+                            "cited_memory_ids": cited,
+                        }
+                    )
+                return {
+                    "insights": insights,
+                    "mood": ("concerned", "attentive")[digest[2] % 2],
+                }
             insights = [
                 {
                     "insight": _INSIGHT_POOL[(start + idx) % len(_INSIGHT_POOL)],
@@ -308,7 +353,10 @@ class MockProvider:
                 }
                 for idx in range(count)
             ]
-            return {"insights": insights}
+            return {
+                "insights": insights,
+                "mood": ("reflective", "calm", "hopeful")[digest[2] % 3],
+            }
         return _synthesize_generic_payload(response_model, digest)
 
     def _build_importance_batch(self, *, prompt: str, digest: bytes) -> dict[str, Any]:
@@ -459,7 +507,7 @@ def _is_metadata_line(line: str) -> bool:
 
 def _is_seeded_persona_memory(line: str) -> bool:
     """Return True when line is a seeded persona bio or goal memory rather than an event/rumor."""
-    stripped = re.sub(r"^\s*-\s*", "", line).strip()
+    stripped = re.sub(r"^\s*(?:-\s*)?(?:\[\d+\]\s*)?", "", line).strip()
     if not stripped:
         return False
     lowered = stripped.lower()
@@ -519,6 +567,7 @@ def _extract_salient_topic(prompt: str) -> str | None:
     for line in candidate_lines:
         if _URGENT_KEYWORD_PATTERN.search(line.lower()):
             stripped = re.sub(r"^-\s*", "", line)
+            stripped = re.sub(r"^\[\d+\]\s*", "", stripped)
             stripped = re.sub(r"^[A-Z][A-Za-z]+:\s*", "", stripped)
             cleaned = _clean_topic_payload(stripped)
             if cleaned is not None:

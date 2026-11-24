@@ -20,7 +20,9 @@ from llm.prompts import (
     build_daily_plan_prompt,
     build_dialogue_turn_prompt,
     build_hourly_action_prompt,
+    build_reflection_insights_prompt,
     build_replan_prompt,
+    build_salient_questions_prompt,
 )
 from llm.providers.base import LLMProvider, ProviderResult
 from llm.providers.gemini import GeminiProvider
@@ -900,3 +902,247 @@ async def test_mock_provider_rumor_propagation_and_neutral_persona_guard() -> No
     assert 3 <= ratings[3] <= 6
     assert 3 <= ratings[4] <= 6
     assert 3 <= ratings[5] <= 6
+
+
+async def test_gateway_reflection_helpers_route_to_planning_model_and_cache(db: Database) -> None:
+    """Reflection helpers route to planning_model, log calls, and cache repeated prompts."""
+    mock = MockProvider(seed=42)
+    maya = get_persona("maya")
+
+    salient_prompt = build_salient_questions_prompt(
+        persona=maya,
+        sim_time="Day 1 15:00",
+        recent_memories=[
+            "Baked fresh sourdough loaves at Bakery.",
+            "[EVENT] Spring harvest fair announced in Town Square",
+        ],
+    )
+    salient_raw = await mock.generate_raw(
+        prompt=salient_prompt,
+        response_model=SalientQuestionsResponse,
+    )
+    salient_parsed = SalientQuestionsResponse.model_validate_json(salient_raw.raw_text)
+
+    reflection_prompt = build_reflection_insights_prompt(
+        persona=maya,
+        sim_time="Day 1 15:00",
+        questions=salient_parsed.questions,
+        evidence_memories=[
+            (17, "[EVENT] Spring harvest fair announced in Town Square"),
+            (42, "Maya and Liam planned extra pastries for Cafe guests."),
+        ],
+    )
+    reflection_raw = await mock.generate_raw(
+        prompt=reflection_prompt,
+        response_model=ReflectionResponse,
+    )
+
+    scripted = ScriptedProvider([salient_raw, reflection_raw])
+    gateway = LLMGateway(
+        provider=scripted,
+        db=db,
+        routine_model="gemini-2.5-flash",
+        planning_model="gemini-2.5-pro",
+    )
+
+    questions_first = await gateway.generate_salient_questions(
+        salient_prompt,
+        tick=900,
+        agent_id="maya",
+    )
+    questions_cached = await gateway.generate_salient_questions(
+        salient_prompt,
+        tick=901,
+        agent_id="maya",
+    )
+    insights_first = await gateway.generate_reflections(
+        reflection_prompt,
+        tick=902,
+        agent_id="maya",
+    )
+    insights_cached = await gateway.generate_reflections(
+        reflection_prompt,
+        tick=903,
+        agent_id="maya",
+    )
+
+    assert questions_first == questions_cached
+    assert insights_first == insights_cached
+    assert len(scripted.requests) == 2
+    assert [req.model_override for req in scripted.requests] == [
+        "gemini-2.5-pro",
+        "gemini-2.5-pro",
+    ]
+
+    async with db.session() as session:
+        rows = list(
+            (await session.exec(select(LLMCallRecord).order_by(col(LLMCallRecord.id)))).all()
+        )
+    assert [(row.purpose, row.cache_hit, row.agent_id) for row in rows] == [
+        ("salient_questions", False, "maya"),
+        ("salient_questions", True, "maya"),
+        ("reflection", False, "maya"),
+        ("reflection", True, "maya"),
+    ]
+
+
+async def test_reflection_prompts_and_mock_provider_citation_grounding() -> None:
+    """Reflection prompts cite only genuine evidence memory IDs and return deterministic moods."""
+    provider = MockProvider(seed=42)
+    maya = get_persona("maya")
+
+    salient_prompt = build_salient_questions_prompt(
+        persona=maya,
+        sim_time="Day 1 16:00",
+        recent_memories=[
+            "[EVENT] Fire near the Bakery storage shed",
+            "Noah checked produce crates at Market.",
+        ],
+    )
+    questions_res = SalientQuestionsResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=salient_prompt,
+                response_model=SalientQuestionsResponse,
+            )
+        ).raw_text
+    )
+    assert len(questions_res.questions) == 3
+    assert "fire near the bakery storage shed" in questions_res.questions[0].lower()
+
+    evidence = [
+        (17, "[EVENT] Fire near the Bakery storage shed"),
+        (42, "Maya and Liam checked the ovens together."),
+        (99, "Noah delivered flour sacks to Bakery."),
+    ]
+    insights_prompt = build_reflection_insights_prompt(
+        persona=maya,
+        sim_time="Day 1 16:00",
+        questions=questions_res.questions,
+        evidence_memories=evidence,
+    )
+    assert "Q1. " in insights_prompt
+    assert "Q2. " in insights_prompt
+    assert "Q3. " in insights_prompt
+    assert "- [17] " in insights_prompt
+    assert "- [42] " in insights_prompt
+    assert "- [99] " in insights_prompt
+
+    reflection_res = ReflectionResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=insights_prompt,
+                response_model=ReflectionResponse,
+            )
+        ).raw_text
+    )
+    assert 1 <= len(reflection_res.insights) <= 5
+    assert reflection_res.mood in {"concerned", "attentive"}
+    assert "fire near the bakery storage shed" in reflection_res.insights[0].insight.lower()
+    for item in reflection_res.insights:
+        assert item.cited_memory_ids == [17, 42, 99]
+        assert not ({1, 2, 3} & set(item.cited_memory_ids))
+
+    # Routine evidence must stay calm/reflective even if a question mentions a prior urgent word.
+    routine_prompt = build_reflection_insights_prompt(
+        persona=maya,
+        sim_time="Day 1 17:00",
+        questions=[
+            "Was the earlier fire drill mentioned again?",
+            "How are bakery routines settling?",
+            "Who visited the Cafe today?",
+        ],
+        evidence_memories=[
+            (105, "Maya walked through the Park after lunch."),
+            (108, "Liam brewed espresso at the Cafe."),
+        ],
+    )
+    routine_res = ReflectionResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=routine_prompt,
+                response_model=ReflectionResponse,
+            )
+        ).raw_text
+    )
+    assert routine_res.mood in {"reflective", "calm", "hopeful"}
+    assert routine_res.insights[0].cited_memory_ids == [105, 108]
+
+    empty_prompt = build_reflection_insights_prompt(
+        persona=maya,
+        sim_time="Day 1 18:00",
+        questions=[],
+        evidence_memories=[],
+    )
+    empty_res = ReflectionResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=empty_prompt,
+                response_model=ReflectionResponse,
+            )
+        ).raw_text
+    )
+    assert empty_res.insights[0].cited_memory_ids == []
+    assert empty_res.mood in {"reflective", "calm", "hopeful"}
+
+
+async def test_conversation_summary_prompt_prior_context_and_moods() -> None:
+    """Summary prompt renders prior relationship context and populates speaker moods."""
+    provider = MockProvider(seed=42)
+    maya = get_persona("maya")
+    liam = get_persona("liam")
+
+    routine_prompt = build_conversation_summary_prompt(
+        speaker_a=maya,
+        speaker_b=liam,
+        location="Cafe",
+        sim_time="Day 1 10:15",
+        transcript=[
+            ("Maya", "Morning Liam, fresh loaves are ready."),
+            ("Liam", "Thanks Maya, espresso is brewing now."),
+        ],
+        existing_affinity=0.45,
+        existing_notes="Discussed fire drill safety last week.",
+    )
+    assert "Prior relationship: affinity=0.45, notes=Discussed fire drill safety last week." in (
+        routine_prompt
+    )
+    assert routine_prompt.index("Prior relationship:") < routine_prompt.index("Transcript:")
+
+    routine_summary = ConversationSummaryResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=routine_prompt,
+                response_model=ConversationSummaryResponse,
+            )
+        ).raw_text
+    )
+    assert routine_summary.speaker_a_mood in {"warm", "cheerful", "engaged", "calm"}
+    assert routine_summary.speaker_b_mood in {"warm", "cheerful", "engaged", "calm"}
+    assert "Exchanged updates" in routine_summary.summary
+
+    urgent_prompt = build_conversation_summary_prompt(
+        speaker_a=maya,
+        speaker_b=liam,
+        location="Market",
+        sim_time="Day 1 12:30",
+        transcript=[
+            ("Maya", "Have you heard? Market fountain overflowed with lavender soap"),
+            ("Liam", "I will check the Market right away!"),
+        ],
+        existing_affinity=-0.25,
+        existing_notes="",
+    )
+    assert "Prior relationship: affinity=-0.25, notes=(none)" in urgent_prompt
+
+    urgent_summary = ConversationSummaryResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=urgent_prompt,
+                response_model=ConversationSummaryResponse,
+            )
+        ).raw_text
+    )
+    assert "Market fountain overflowed with lavender soap" in urgent_summary.summary
+    assert urgent_summary.speaker_a_mood == "concerned"
+    assert urgent_summary.speaker_b_mood == "alert"

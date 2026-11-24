@@ -77,6 +77,15 @@ updated: 2026-11-23T23:39:00+05:00
 **Depends on:** Phase 3
 **Requirements:** REQ-09, REQ-10 (backend), REQ-11, REQ-12
 
+**Plans:**
+- [ ] Plan 4.1: Add reflection prompts, mood schema fields, LLMGateway reflection helpers, and mood/topic-aware MockProvider (Wave 1)
+- [ ] Plan 4.2: Add Settings.reflection_threshold, AgentRecord.mood with idempotent SQLite migration, and canonical relationship upserts (Wave 1)
+- [ ] Plan 4.3: Add frontend Phase 4 types/runtime guards, REST apiClient helpers, WS reflection dispatch, and Vite proxies (Wave 1)
+- [ ] Plan 4.4: Implement ReflectionManager, AgentBrain plan/reflection importance accounting, and ConversationManager mood/relationship updates (Wave 2)
+- [ ] Plan 4.5: Add HUD TimeControls, drag-safe sprite/chip selection, left-docked AgentInspector, and reflection UI/Phaser cues (Wave 2)
+- [ ] Plan 4.6: Wire ReflectionManager, agent mood sync, and interruptible start/pause/speed controls into SimulationEngine and main.py (Wave 3)
+- [ ] Plan 4.7: Implement /sim/*, /agents/{id}, and /relationships REST endpoints plus Phase 4 offline integration and full-stack verification (Wave 4)
+
 ---
 
 ### Phase 5: Cost Dashboard, Replay, Relationship Graph, Tests & CI
@@ -102,7 +111,7 @@ updated: 2026-11-23T23:39:00+05:00
 | 1 | ✅ | 6/6 | 100% |
 | 2 | ✅ | 5/5 | 100% |
 | 3 | ✅ | 8/8 | 100% |
-| 4 | 🔄 | 0/TBD | — |
+| 4 | 🔄 | 0/7 | — |
 | 5 | ⬜ | 0/TBD | — |
 | 6 | ⬜ | 0/TBD | — |
 

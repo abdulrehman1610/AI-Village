@@ -5,7 +5,12 @@ from pathlib import Path
 from typing import Protocol
 
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncConnection,
+    AsyncEngine,
+    async_sessionmaker,
+    create_async_engine,
+)
 from sqlalchemy.pool import StaticPool
 from sqlmodel import SQLModel
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -68,6 +73,22 @@ class Database:
 
         async with self.engine.begin() as conn:
             await conn.run_sync(SQLModel.metadata.create_all)
+            if self._database_url.startswith("sqlite"):
+                await self._migrate_sqlite_columns(conn)
+
+    async def _migrate_sqlite_columns(self, conn: AsyncConnection) -> None:
+        """Idempotently add new columns missing from pre-existing SQLite tables."""
+        result = await conn.exec_driver_sql("PRAGMA table_info('agents')")
+        rows = result.fetchall()
+        column_names = {
+            str(row_values[1])
+            for row in rows
+            if len(row_values := list(row)) > 1
+        }
+        if rows and "mood" not in column_names:
+            await conn.exec_driver_sql(
+                "ALTER TABLE agents ADD COLUMN mood VARCHAR NOT NULL DEFAULT 'calm'"
+            )
 
     @asynccontextmanager
     async def session(self) -> AsyncIterator[AsyncSession]:

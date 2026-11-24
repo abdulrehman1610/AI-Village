@@ -17,6 +17,7 @@ class AgentRecord(SQLModel, table=True):
     y: int
     current_action: str = "Idle"
     current_plan_json: str = "[]"
+    mood: str = "calm"
 
 
 class MemoryRecord(SQLModel, table=True):

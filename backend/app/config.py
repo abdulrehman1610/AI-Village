@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[2]
@@ -38,6 +39,7 @@ class Settings(BaseSettings):
     retrieval_w_relevance: float = 1.0
     retrieval_decay_per_hour: float = 0.995
     retrieval_top_k: int = 8
+    reflection_threshold: int = Field(default=150, ge=1)
 
     def resolved_map_path(self) -> Path:
         """Return the configured map path or the canonical frontend asset path."""

@@ -15,7 +15,15 @@ from sqlmodel import col, select
 from app.db import Database
 from llm.providers.base import LLMProvider
 from llm.providers.mock import MockProvider
-from llm.schemas import ImportanceBatchResponse
+from llm.schemas import (
+    ConversationDecisionResponse,
+    ConversationSummaryResponse,
+    DailyPlanResponse,
+    DialogueTurnResponse,
+    HourlyActionPlanResponse,
+    ImportanceBatchResponse,
+    ReplanResponse,
+)
 from memory.models import LLMCallRecord
 
 T = TypeVar("T", bound=BaseModel)
@@ -271,6 +279,114 @@ class LLMGateway:
                 f"Expected {len(texts)} importance ratings, received {len(response.ratings)}"
             )
         return list(response.ratings)
+
+    async def generate_daily_plan(
+        self,
+        prompt: str,
+        *,
+        tick: int,
+        agent_id: str,
+        system_instruction: str | None = None,
+    ) -> DailyPlanResponse:
+        """Generate a 5..8 item daily plan routed to the planning model."""
+        return await self.generate(
+            prompt,
+            DailyPlanResponse,
+            purpose="daily_plan",
+            tick=tick,
+            agent_id=agent_id,
+            system_instruction=system_instruction,
+        )
+
+    async def generate_replan(
+        self,
+        prompt: str,
+        *,
+        tick: int,
+        agent_id: str,
+        system_instruction: str | None = None,
+    ) -> ReplanResponse:
+        """Generate a partial-day replan routed to the planning model."""
+        return await self.generate(
+            prompt,
+            ReplanResponse,
+            purpose="replan",
+            tick=tick,
+            agent_id=agent_id,
+            system_instruction=system_instruction,
+        )
+
+    async def generate_hourly_actions(
+        self,
+        prompt: str,
+        *,
+        tick: int,
+        agent_id: str,
+        system_instruction: str | None = None,
+    ) -> HourlyActionPlanResponse:
+        """Decompose an active block into hourly focus and minute actions on routine_model."""
+        return await self.generate(
+            prompt,
+            HourlyActionPlanResponse,
+            purpose="action_decomposition",
+            tick=tick,
+            agent_id=agent_id,
+            system_instruction=system_instruction,
+        )
+
+    async def decide_conversation(
+        self,
+        prompt: str,
+        *,
+        tick: int,
+        agent_id: str,
+        system_instruction: str | None = None,
+    ) -> ConversationDecisionResponse:
+        """Decide whether an agent initiates dialogue with a nearby peer."""
+        return await self.generate(
+            prompt,
+            ConversationDecisionResponse,
+            purpose="conversation_decide",
+            tick=tick,
+            agent_id=agent_id,
+            system_instruction=system_instruction,
+        )
+
+    async def generate_dialogue_turn(
+        self,
+        prompt: str,
+        *,
+        tick: int,
+        agent_id: str,
+        system_instruction: str | None = None,
+    ) -> DialogueTurnResponse:
+        """Generate one conversational turn and continuation signal."""
+        return await self.generate(
+            prompt,
+            DialogueTurnResponse,
+            purpose="dialogue_turn",
+            tick=tick,
+            agent_id=agent_id,
+            system_instruction=system_instruction,
+        )
+
+    async def summarize_conversation(
+        self,
+        prompt: str,
+        *,
+        tick: int,
+        agent_id: str,
+        system_instruction: str | None = None,
+    ) -> ConversationSummaryResponse:
+        """Summarize a finished conversation and estimate relationship affinity change."""
+        return await self.generate(
+            prompt,
+            ConversationSummaryResponse,
+            purpose="conversation_summary",
+            tick=tick,
+            agent_id=agent_id,
+            system_instruction=system_instruction,
+        )
 
     async def get_usage_summary(self, *, tick: int | None = None) -> dict[str, float | int]:
         """Return aggregated call, token, cost, and cache-hit metrics."""

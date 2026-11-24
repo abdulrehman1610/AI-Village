@@ -34,6 +34,33 @@ class DailyPlanResponse(BaseModel):
     items: list[DailyPlanItem] = Field(min_length=5, max_length=8)
 
 
+class ReplanResponse(BaseModel):
+    """Partial-day schedule generated when an interruption triggers replanning."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[DailyPlanItem] = Field(min_length=1, max_length=8)
+
+
+class MinuteActionItem(BaseModel):
+    """Granular minute-level action step inside an active hourly block."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    duration_minutes: int = Field(ge=5, le=60)
+    location: str = Field(min_length=1)
+    action: str = Field(min_length=1)
+
+
+class HourlyActionPlanResponse(BaseModel):
+    """Hourly focus and concrete minute-level action breakdown for a plan block."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    hourly_focus: str = Field(min_length=1)
+    actions: list[MinuteActionItem] = Field(min_length=1, max_length=6)
+
+
 class ConversationDecisionResponse(BaseModel):
     """Decision whether an agent initiates dialogue with a nearby peer."""
 

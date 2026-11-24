@@ -182,7 +182,10 @@ export class VillageScene extends Phaser.Scene {
     const halfTile = this.tileSize / 2;
     const targetPx = agent.x * this.tileSize + halfTile;
     const targetPy = agent.y * this.tileSize + halfTile;
-    const baseFrame = Math.max(0, agent.sprite_index) * FRAMES_PER_AGENT;
+    const totalFrames = this.textures.get("villagers").getFrameNames().length;
+    const rowCount = Math.max(1, Math.floor(totalFrames / FRAMES_PER_AGENT));
+    const safeRow = Math.max(0, agent.sprite_index) % rowCount;
+    const baseFrame = safeRow * FRAMES_PER_AGENT;
 
     const existing = this.agentVisuals.get(agent.id);
     if (existing === undefined) {

@@ -2,7 +2,7 @@
 
 Produces:
 - frontend/public/assets/tileset.png (256x128 RGBA, 8x4 grid of 32x32 tiles)
-- frontend/public/assets/sprites.png (128x128 RGBA, 4x4 grid of 32x32 villager frames)
+- frontend/public/assets/sprites.png (128x256 RGBA, 4x8 grid of 32x32 villager frames)
 - frontend/public/assets/map.json (40x30 orthogonal Tiled JSON v1.10 map)
 """
 
@@ -47,9 +47,9 @@ TILESET_WIDTH = TILESET_COLS * TILE_SIZE  # 256
 TILESET_HEIGHT = TILESET_ROWS * TILE_SIZE  # 128
 
 SPRITE_COLS = 4
-SPRITE_ROWS = 4
+SPRITE_ROWS = 8
 SPRITESHEET_WIDTH = SPRITE_COLS * TILE_SIZE  # 128
-SPRITESHEET_HEIGHT = SPRITE_ROWS * TILE_SIZE  # 128
+SPRITESHEET_HEIGHT = SPRITE_ROWS * TILE_SIZE  # 256
 
 # Tile GIDs (1-indexed, matching Tiled firstgid=1)
 GID_EMPTY = 0
@@ -495,18 +495,27 @@ def _draw_villager_frame(
 
 
 def generate_spritesheet(path: Path) -> None:
-    """Create the 128x128 RGBA character spritesheet (4 villagers x 4 poses)."""
+    """Create the 128x256 RGBA character spritesheet (8 villagers x 4 poses)."""
     canvas = Canvas(SPRITESHEET_WIDTH, SPRITESHEET_HEIGHT)
-    palettes = [
-        # Maya (teal)
+    palettes: list[tuple[RGBA, RGBA, RGBA, RGBA]] = [
+        # 0: Maya (teal)
         ((38, 166, 154, 255), (56, 36, 28, 255), (44, 68, 92, 255), (240, 200, 170, 255)),
-        # Liam (amber)
+        # 1: Liam (amber)
         ((230, 158, 40, 255), (124, 76, 36, 255), (68, 56, 48, 255), (244, 208, 178, 255)),
-        # Elena (violet)
+        # 2: Elena (violet)
         ((142, 84, 200, 255), (138, 54, 38, 255), (58, 44, 78, 255), (235, 192, 162, 255)),
-        # Noah (emerald)
+        # 3: Noah (emerald)
         ((46, 160, 92, 255), (34, 36, 42, 255), (52, 62, 74, 255), (214, 168, 134, 255)),
+        # 4: Clara (crimson/silver hair)
+        ((192, 56, 72, 255), (210, 214, 224, 255), (54, 48, 60, 255), (238, 198, 172, 255)),
+        # 5: Marcus (cobalt/dark brown hair)
+        ((44, 104, 198, 255), (64, 42, 30, 255), (42, 50, 68, 255), (192, 142, 108, 255)),
+        # 6: Aria (rose/blonde hair)
+        ((224, 108, 148, 255), (234, 198, 92, 255), (76, 56, 84, 255), (246, 212, 184, 255)),
+        # 7: Sam (slate/auburn hair)
+        ((96, 114, 136, 255), (148, 62, 40, 255), (48, 54, 58, 255), (226, 184, 152, 255)),
     ]
+    assert len(palettes) == SPRITE_ROWS
     for row, (shirt, hair, pants, skin) in enumerate(palettes):
         for col in range(SPRITE_COLS):
             _draw_villager_frame(

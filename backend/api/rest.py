@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import cast
 
-from fastapi import APIRouter, Request
-from pydantic import BaseModel
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from sim.engine import AgentSnapshot, SimulationEngine
 from sim.world import NamedLocation, WorldMap
@@ -31,6 +31,24 @@ class WorldResponse(BaseModel):
     height: int
     tile_size: int
     locations: list[NamedLocation]
+
+
+class InjectEventRequest(BaseModel):
+    """Request body for injecting a god-mode event into the simulation."""
+
+    text: str = Field(min_length=1, max_length=500)
+    location: str | None = None
+
+
+class InjectEventResponse(BaseModel):
+    """Response payload summarizing the persisted and broadcast god-mode event."""
+
+    id: int | None
+    tick: int
+    sim_time: str
+    text: str
+    location: str | None
+    affected_agents: list[str]
 
 
 def _get_engine(request: Request) -> SimulationEngine:
@@ -72,3 +90,29 @@ async def get_agents(request: Request) -> list[AgentSnapshot]:
     """Return authoritative snapshots of all agents in the simulation."""
     engine = _get_engine(request)
     return engine.build_tick_payload().agents
+
+
+@router.post("/events", response_model=InjectEventResponse)
+async def post_event(
+    payload: InjectEventRequest,
+    request: Request,
+) -> InjectEventResponse:
+    """Inject a god-mode event globally or near a named village location."""
+    clean_text = payload.text.strip()
+    if not clean_text:
+        raise HTTPException(status_code=422, detail="Event text must not be blank.")
+
+    normalized_location = (
+        payload.location.strip()
+        if payload.location and payload.location.strip()
+        else None
+    )
+    engine = _get_engine(request)
+    try:
+        result = await engine.inject_event(clean_text, location=normalized_location)
+    except KeyError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+    return InjectEventResponse(**result)

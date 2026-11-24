@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Any
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -92,7 +93,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             async def _broadcast(payload: TickPayload) -> None:
                 await ws_manager.broadcast_json(payload.model_dump())
 
+            async def _broadcast_event(payload: dict[str, Any]) -> None:
+                await ws_manager.broadcast_json(payload)
+
             engine.register_tick_callback(_broadcast)
+            engine.register_event_callback(_broadcast_event)
 
             app.state.settings = resolved_settings
             app.state.db = db

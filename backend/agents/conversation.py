@@ -44,6 +44,7 @@ class DialogueParticipant(Protocol):
     conversation_hold_ticks: int
     needs_replan: bool
     replan_reason: str
+    mood: str
 
 
 @dataclass(frozen=True)
@@ -58,6 +59,7 @@ class DialogueOutcome:
     importance: int
     affinity_delta: float
     ws_payload: dict[str, Any]
+    moods: tuple[str, str] = ("warm", "warm")
 
 
 def _pair_key(id_a: str, id_b: str) -> tuple[str, str]:
@@ -272,12 +274,16 @@ class ConversationManager:
             if not continue_dialogue and len(turns) >= 2:
                 break
 
+        id_1, id_2 = pair
+        existing_rel = await self.memory_store.get_relationship(id_1, id_2)
         summary_prompt = build_conversation_summary_prompt(
             speaker_a=agent_a.persona,
             speaker_b=agent_b.persona,
             location=location_label,
             sim_time=sim_time,
             transcript=transcript,
+            existing_affinity=existing_rel.affinity if existing_rel is not None else None,
+            existing_notes=existing_rel.notes if existing_rel is not None else "",
         )
         summary_resp = await self.llm_gateway.summarize_conversation(
             summary_prompt,
@@ -322,13 +328,6 @@ class ConversationManager:
             ]
         )
 
-        id_1, id_2 = pair
-        existing_rel = await self.memory_store.get_relationship(id_1, id_2)
-        target_a, target_b = (
-            (existing_rel.agent_a, existing_rel.agent_b)
-            if existing_rel is not None
-            else (id_1, id_2)
-        )
         base_affinity = existing_rel.affinity if existing_rel is not None else 0.0
         clamped_affinity = max(
             -1.0,
@@ -340,8 +339,8 @@ class ConversationManager:
             or summary_resp.summary
         )
         await self.memory_store.upsert_relationship(
-            target_a,
-            target_b,
+            id_1,
+            id_2,
             affinity=clamped_affinity,
             notes=relationship_notes,
             last_interaction_tick=tick,
@@ -353,6 +352,12 @@ class ConversationManager:
         agent_b.conversation_hold_ticks = hold_ticks
         agent_a.current_action = f"Talking with {agent_b.name}"
         agent_b.current_action = f"Talking with {agent_a.name}"
+
+        fallback_mood = "concerned" if importance >= _REPLAN_IMPORTANCE_THRESHOLD else "warm"
+        mood_a = summary_resp.speaker_a_mood.strip() or fallback_mood
+        mood_b = summary_resp.speaker_b_mood.strip() or fallback_mood
+        agent_a.mood = mood_a
+        agent_b.mood = mood_b
 
         if importance >= _REPLAN_IMPORTANCE_THRESHOLD:
             agent_a.needs_replan = True
@@ -379,4 +384,5 @@ class ConversationManager:
             importance=importance,
             affinity_delta=summary_resp.affinity_delta,
             ws_payload=ws_payload,
+            moods=(mood_a, mood_b),
         )

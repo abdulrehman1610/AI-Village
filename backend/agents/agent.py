@@ -7,7 +7,12 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 from agents.personas import AgentPersona
-from agents.planner import AgentPlanState, DailyPlanner
+from agents.planner import (
+    PLAN_MEMORY_IMPORTANCE,
+    REPLAN_MEMORY_IMPORTANCE,
+    AgentPlanState,
+    DailyPlanner,
+)
 from llm.gateway import LLMGateway
 from memory.retrieval import MemoryRetriever
 from memory.store import MemoryStore
@@ -41,6 +46,22 @@ class AgentBrain:
     last_arrived_location: str | None = None
     peer_perception_cooldown: int = 25
     replan_cooldown: int = 10
+    mood: str = "calm"
+    last_reflection_tick: int = -1
+    reflection_threshold: int = 150
+
+    def add_importance(self, amount: int) -> None:
+        """Accumulate positive importance points toward the next reflection."""
+        self.accumulated_importance += max(0, amount)
+
+    def should_reflect(self) -> bool:
+        """Return True when accumulated importance meets or exceeds reflection_threshold."""
+        return self.accumulated_importance >= self.reflection_threshold
+
+    def reset_reflection_counter(self, *, tick: int) -> None:
+        """Reset accumulated importance to zero and record the reflection tick."""
+        self.accumulated_importance = 0
+        self.last_reflection_tick = tick
 
     def queue_observation(
         self,
@@ -101,7 +122,7 @@ class AgentBrain:
         observations: Sequence[PendingObservation],
     ) -> tuple[bool, str]:
         """Accumulate importance scores and determine whether an interruption replan is needed."""
-        self.accumulated_importance += sum(scores)
+        self.add_importance(sum(scores))
 
         for obs in observations:
             if obs.trigger_replan:
@@ -165,6 +186,8 @@ class AgentBrain:
                 retriever=retriever,
                 memory_store=memory_store,
             )
+            if memory_store is not None:
+                self.add_importance(PLAN_MEMORY_IMPORTANCE)
         elif needs_replan:
             reason_text = replan_reason.strip() or "Unexpected village event"
             self.plan_state = await planner.replan_remaining_day(
@@ -177,6 +200,8 @@ class AgentBrain:
                 retriever=retriever,
                 memory_store=memory_store,
             )
+            if memory_store is not None:
+                self.add_importance(REPLAN_MEMORY_IMPORTANCE)
             replanned = True
 
         step = await planner.resolve_minute_step(

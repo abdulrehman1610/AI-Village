@@ -22,6 +22,8 @@ from sim.clock import SimClock
 from sim.world import WorldMap
 
 _MIN_DWELL_TICKS = 8
+PLAN_MEMORY_IMPORTANCE = 6
+REPLAN_MEMORY_IMPORTANCE = 7
 _COLLAPSE_PATTERN = re.compile(r"[^a-z0-9]+")
 
 
@@ -257,7 +259,7 @@ class DailyPlanner:
                 agent_id=persona.id,
                 memory_type="plan",
                 text=f"Day {clock.day} plan: {summary}",
-                importance=6,
+                importance=PLAN_MEMORY_IMPORTANCE,
                 created_tick=clock.tick,
             )
 
@@ -337,7 +339,7 @@ class DailyPlanner:
                 agent_id=persona.id,
                 memory_type="plan",
                 text=f"Replanned Day {clock.day} from {clock.hour:02d}:00 ({reason}): {summary}",
-                importance=7,
+                importance=REPLAN_MEMORY_IMPORTANCE,
                 created_tick=clock.tick,
             )
 

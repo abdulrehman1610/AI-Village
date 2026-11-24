@@ -132,7 +132,8 @@ class MemoryStore:
             .values(last_access_tick=tick)
         )
         async with self.db.session() as session:
-            await session.execute(stmt)
+            conn = await session.connection()
+            await conn.execute(stmt)
             await session.commit()
 
     async def upsert_agent(self, record: AgentRecord) -> AgentRecord:

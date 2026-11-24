@@ -43,7 +43,7 @@ SEEDED_PERSONAS: tuple[AgentPersona, ...] = (
         role="Baker",
         traits=("warm", "industrious", "observant", "generous"),
         bio=(
-            "Maya wakes before dawn to fire the village ovens, pairing sourdough loaves "
+            "Maya wakes before dawn to heat the village ovens, pairing sourdough loaves "
             "and cinnamon pastries with friendly neighborhood conversation."
         ),
         home_location="Home_Maya",

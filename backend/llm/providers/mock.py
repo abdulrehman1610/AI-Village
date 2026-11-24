@@ -45,6 +45,23 @@ _EVENT_IMPORTANCE_MARKERS: tuple[str, ...] = (
     "discussed:",
 )
 
+_NON_SEEDED_MEMORY_MARKERS: tuple[str, ...] = (
+    "[event]",
+    "event at ",
+    "observed event:",
+    "interruption:",
+    "heard news:",
+    "discussed:",
+    "conversation with ",
+    "have you heard?",
+    "everyone should know about this:",
+    "wait, regarding ",
+)
+
+_SEEDED_GOAL_PATTERN = re.compile(
+    r"^(?:[a-z][a-z0-9_'-]*(?:\s+[a-z][a-z0-9_'-]*)?)?'s goal:"
+)
+
 _METADATA_LINE_PREFIXES: tuple[str, ...] = (
     "persona:",
     "speaker profile:",
@@ -300,10 +317,13 @@ class MockProvider:
         for idx in range(count):
             item_digest = hashlib.sha256(digest + idx.to_bytes(4, "big")).digest()
             text = segments[idx] if idx < len(segments) else prompt
-            lowered = text.lower()
-            is_urgent = bool(_URGENT_KEYWORD_PATTERN.search(lowered)) or any(
-                marker in lowered for marker in _EVENT_IMPORTANCE_MARKERS
-            )
+            if _is_seeded_persona_memory(text):
+                is_urgent = False
+            else:
+                lowered = text.lower()
+                is_urgent = bool(_URGENT_KEYWORD_PATTERN.search(lowered)) or any(
+                    marker in lowered for marker in _EVENT_IMPORTANCE_MARKERS
+                )
             if is_urgent:
                 ratings.append(7 + (item_digest[0] % 3))
             else:
@@ -348,7 +368,7 @@ class MockProvider:
         if target_loc is None:
             for line in prompt.splitlines():
                 stripped = line.strip()
-                if not _is_metadata_line(stripped):
+                if not _is_metadata_line(stripped) and not _is_seeded_persona_memory(stripped):
                     target_loc = _extract_prompt_location(stripped)
                     if target_loc is not None:
                         break
@@ -437,6 +457,19 @@ def _is_metadata_line(line: str) -> bool:
     return stripped.lower().startswith(_METADATA_LINE_PREFIXES)
 
 
+def _is_seeded_persona_memory(line: str) -> bool:
+    """Return True when line is a seeded persona bio or goal memory rather than an event/rumor."""
+    stripped = re.sub(r"^\s*-\s*", "", line).strip()
+    if not stripped:
+        return False
+    lowered = stripped.lower()
+    if any(marker in lowered for marker in _NON_SEEDED_MEMORY_MARKERS):
+        return False
+    if "lives at " in lowered and "traits:" in lowered and "starting goals:" in lowered:
+        return True
+    return _SEEDED_GOAL_PATTERN.match(lowered) is not None
+
+
 def _clean_topic_payload(raw: str) -> str | None:
     cleaned = " ".join(raw.strip().split())
     cleaned = re.sub(r"^[\s:\-]+", "", cleaned)
@@ -469,7 +502,9 @@ def _extract_after_marker(line: str, markers: tuple[str, ...]) -> str | None:
 def _extract_salient_topic(prompt: str) -> str | None:
     """Extract an injected event, interruption, or rumor topic from a prompt."""
     candidate_lines = [
-        line.strip() for line in prompt.splitlines() if not _is_metadata_line(line)
+        line.strip()
+        for line in prompt.splitlines()
+        if not _is_metadata_line(line) and not _is_seeded_persona_memory(line)
     ]
     for marker_group in (
         _TIER1_EVENT_MARKERS,

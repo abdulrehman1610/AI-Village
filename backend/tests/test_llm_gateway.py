@@ -11,18 +11,31 @@ import pytest_asyncio
 from pydantic import BaseModel
 from sqlmodel import col, select
 
+from agents.personas import get_persona
 from app.db import Database
 from llm.gateway import LLMGateway, LLMGatewayError, estimate_cost_usd
+from llm.prompts import (
+    build_conversation_decision_prompt,
+    build_conversation_summary_prompt,
+    build_daily_plan_prompt,
+    build_dialogue_turn_prompt,
+    build_hourly_action_prompt,
+    build_replan_prompt,
+)
 from llm.providers.base import LLMProvider, ProviderResult
 from llm.providers.gemini import GeminiProvider
-from llm.providers.mock import MockProvider
+from llm.providers.mock import _LOCATIONS, MockProvider
 from llm.schemas import (
     ConversationDecisionResponse,
     ConversationSummaryResponse,
+    DailyPlanItem,
     DailyPlanResponse,
     DialogueTurnResponse,
+    HourlyActionPlanResponse,
     ImportanceBatchResponse,
+    MinuteActionItem,
     ReflectionResponse,
+    ReplanResponse,
     SalientQuestionsResponse,
 )
 from memory.models import LLMCallRecord
@@ -145,6 +158,14 @@ async def test_mock_provider_deterministic_and_schema_valid_across_all_schemas()
             "3. Drank tea",
         ),
         (DailyPlanResponse, "Generate a daily plan for Maya at Home_Maya."),
+        (
+            ReplanResponse,
+            "Current hour: 15\nInterruption: Fire broke out at Market",
+        ),
+        (
+            HourlyActionPlanResponse,
+            "Block: 09:00-11:00 at Bakery\nCurrent time: 09:15\nBlock goal: Bake morning loaves",
+        ),
         (ConversationDecisionResponse, "Should Maya talk to Liam at the Cafe?"),
         (DialogueTurnResponse, "Respond to Liam about the Market fire."),
         (ConversationSummaryResponse, "Summarize Maya and Liam's morning dialogue."),
@@ -490,3 +511,338 @@ async def test_gemini_provider_offline_with_injected_fake_client() -> None:
 
     assert estimate_cost_usd("mock-flash", 1000, 1000) == 0.0
     assert estimate_cost_usd("gemini-2.5-flash", 1_000_000, 1_000_000) == pytest.approx(0.75)
+
+
+async def test_mock_provider_late_evening_replan_and_hourly_actions() -> None:
+    """Late-evening replanning and hourly decomposition produce valid constrained blocks."""
+    provider = MockProvider(seed=42)
+    maya = get_persona("maya")
+
+    replan_prompt = build_replan_prompt(
+        persona=maya,
+        current_hour=22,
+        sim_time="Day 1 22:10",
+        interruption_reason="[EVENT] Late night lantern parade at Market",
+        remaining_blocks=[],
+        valid_locations=_LOCATIONS,
+        memories=["[EVENT] Late night lantern parade at Market"],
+    )
+    replan_res = await provider.generate_raw(
+        prompt=replan_prompt,
+        response_model=ReplanResponse,
+    )
+    replan = ReplanResponse.model_validate_json(replan_res.raw_text)
+    assert 1 <= len(replan.items) <= 2
+    assert replan.items[0].start_hour == 22
+    assert replan.items[-1].end_hour == 24
+    assert replan.items[0].location == "Market"
+    assert "lantern parade" in replan.items[0].description.lower()
+    for idx, item in enumerate(replan.items):
+        assert item.start_hour >= 22
+        assert item.start_hour < item.end_hour <= 24
+        if idx > 0:
+            assert item.start_hour == replan.items[idx - 1].end_hour
+
+    final_hour_prompt = build_replan_prompt(
+        persona=maya,
+        current_hour=23,
+        sim_time="Day 1 23:05",
+        interruption_reason="Quiet night check",
+        remaining_blocks=[],
+        valid_locations=_LOCATIONS,
+        memories=[],
+    )
+    final_hour_res = await provider.generate_raw(
+        prompt=final_hour_prompt,
+        response_model=ReplanResponse,
+    )
+    final_replan = ReplanResponse.model_validate_json(final_hour_res.raw_text)
+    assert len(final_replan.items) == 1
+    assert final_replan.items[0].start_hour == 23
+    assert final_replan.items[0].end_hour == 24
+
+    block = DailyPlanItem(
+        start_hour=9,
+        end_hour=11,
+        location="Bakery",
+        description="Bake sourdough loaves and organize pastry counter",
+    )
+    hourly_prompt = build_hourly_action_prompt(
+        persona=maya,
+        block=block,
+        current_hour=9,
+        current_minute=15,
+        valid_locations=_LOCATIONS,
+        memories=["Need extra flour sacks for morning rush."],
+    )
+    hourly_res = await provider.generate_raw(
+        prompt=hourly_prompt,
+        response_model=HourlyActionPlanResponse,
+    )
+    hourly = HourlyActionPlanResponse.model_validate_json(hourly_res.raw_text)
+    assert hourly.hourly_focus
+    assert 1 <= len(hourly.actions) <= 3
+    for step in hourly.actions:
+        assert isinstance(step, MinuteActionItem)
+        assert 5 <= step.duration_minutes <= 60
+        assert step.location == "Bakery"
+        assert step.location in _LOCATIONS
+
+
+async def test_gateway_planning_and_dialogue_helper_model_routing(db: Database) -> None:
+    """Typed gateway helpers delegate with correct purposes and routine/planning model routing."""
+    mock = MockProvider(seed=42)
+    maya = get_persona("maya")
+    liam = get_persona("liam")
+    block = DailyPlanItem(
+        start_hour=8,
+        end_hour=10,
+        location="Bakery",
+        description="Open morning ovens",
+    )
+
+    daily_prompt = build_daily_plan_prompt(
+        persona=maya,
+        sim_time="Day 1 06:00",
+        valid_locations=_LOCATIONS,
+        memories=[],
+    )
+    replan_prompt = build_replan_prompt(
+        persona=maya,
+        current_hour=14,
+        sim_time="Day 1 14:15",
+        interruption_reason="Neighbor asked for help at Cafe",
+        remaining_blocks=[block],
+        valid_locations=_LOCATIONS,
+        memories=[],
+    )
+    hourly_prompt = build_hourly_action_prompt(
+        persona=maya,
+        block=block,
+        current_hour=8,
+        current_minute=10,
+        valid_locations=_LOCATIONS,
+        memories=[],
+    )
+    decision_prompt = build_conversation_decision_prompt(
+        speaker=maya,
+        listener=liam,
+        location="Cafe",
+        sim_time="Day 1 10:00",
+        speaker_action="Taking espresso break",
+        listener_action="Serving coffee",
+        memories=[],
+    )
+    turn_prompt = build_dialogue_turn_prompt(
+        speaker=maya,
+        listener=liam,
+        location="Cafe",
+        sim_time="Day 1 10:01",
+        turn_index=1,
+        max_turns=6,
+        memories=[],
+        transcript=[("Maya", "Good morning, Liam!")],
+    )
+    summary_prompt = build_conversation_summary_prompt(
+        speaker_a=maya,
+        speaker_b=liam,
+        location="Cafe",
+        sim_time="Day 1 10:03",
+        transcript=[("Maya", "Good morning, Liam!"), ("Liam", "Morning, Maya!")],
+    )
+
+    scripted_results = [
+        await mock.generate_raw(prompt=daily_prompt, response_model=DailyPlanResponse),
+        await mock.generate_raw(prompt=replan_prompt, response_model=ReplanResponse),
+        await mock.generate_raw(prompt=hourly_prompt, response_model=HourlyActionPlanResponse),
+        await mock.generate_raw(
+            prompt=decision_prompt, response_model=ConversationDecisionResponse
+        ),
+        await mock.generate_raw(prompt=turn_prompt, response_model=DialogueTurnResponse),
+        await mock.generate_raw(
+            prompt=summary_prompt, response_model=ConversationSummaryResponse
+        ),
+    ]
+    scripted = ScriptedProvider(scripted_results)
+    gateway = LLMGateway(
+        provider=scripted,
+        db=db,
+        routine_model="gemini-2.5-flash",
+        planning_model="gemini-2.5-pro",
+    )
+
+    daily = await gateway.generate_daily_plan(daily_prompt, tick=0, agent_id="maya")
+    replan = await gateway.generate_replan(replan_prompt, tick=855, agent_id="maya")
+    hourly = await gateway.generate_hourly_actions(hourly_prompt, tick=490, agent_id="maya")
+    decision = await gateway.decide_conversation(decision_prompt, tick=600, agent_id="maya")
+    turn = await gateway.generate_dialogue_turn(turn_prompt, tick=601, agent_id="maya")
+    summary = await gateway.summarize_conversation(summary_prompt, tick=603, agent_id="maya")
+
+    assert isinstance(daily, DailyPlanResponse)
+    assert isinstance(replan, ReplanResponse)
+    assert isinstance(hourly, HourlyActionPlanResponse)
+    assert isinstance(decision, ConversationDecisionResponse)
+    assert isinstance(turn, DialogueTurnResponse)
+    assert isinstance(summary, ConversationSummaryResponse)
+
+    assert [req.model_override for req in scripted.requests] == [
+        "gemini-2.5-pro",
+        "gemini-2.5-pro",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash",
+        "gemini-2.5-flash",
+    ]
+    async with db.session() as session:
+        rows = list(
+            (await session.exec(select(LLMCallRecord).order_by(col(LLMCallRecord.id)))).all()
+        )
+    assert [row.purpose for row in rows] == [
+        "daily_plan",
+        "replan",
+        "action_decomposition",
+        "conversation_decide",
+        "dialogue_turn",
+        "conversation_summary",
+    ]
+
+
+async def test_mock_provider_rumor_propagation_and_neutral_persona_guard() -> None:
+    """Injected events propagate across 2-hop dialogues without persona bio false positives."""
+    provider = MockProvider(seed=42)
+    maya = get_persona("maya")
+    liam = get_persona("liam")
+    noah = get_persona("noah")
+
+    # Maya's bio contains "fire the village ovens"; routine memories must not trigger rumor mode.
+    routine_decision_prompt = build_conversation_decision_prompt(
+        speaker=maya,
+        listener=liam,
+        location="Bakery",
+        sim_time="Day 1 08:00",
+        speaker_action="Baking sourdough loaves",
+        listener_action="Picking up pastries",
+        memories=[
+            "Walked past the Park pond.",
+            (
+                "Conversation with Clara: Exchanged updates about daily routines "
+                "and village happenings."
+            ),
+        ],
+    )
+    routine_decision = ConversationDecisionResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=routine_decision_prompt,
+                response_model=ConversationDecisionResponse,
+            )
+        ).raw_text
+    )
+    assert not routine_decision.opening_line.startswith("Have you heard?")
+
+    # Hop 1: Non-keyword [EVENT] memory triggers initiate=True and survives turn & summary.
+    event_phrase = "Market fountain overflowed with lavender soap"
+    event_memory = f"[EVENT] {event_phrase}"
+
+    hop1_decision = ConversationDecisionResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=build_conversation_decision_prompt(
+                    speaker=maya,
+                    listener=liam,
+                    location="Cafe",
+                    sim_time="Day 1 11:00",
+                    speaker_action="Delivering pastries",
+                    listener_action="Brewing espresso",
+                    memories=[event_memory],
+                ),
+                response_model=ConversationDecisionResponse,
+            )
+        ).raw_text
+    )
+    assert hop1_decision.initiate is True
+    assert event_phrase in hop1_decision.opening_line
+
+    hop1_turn = DialogueTurnResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=build_dialogue_turn_prompt(
+                    speaker=liam,
+                    listener=maya,
+                    location="Cafe",
+                    sim_time="Day 1 11:01",
+                    turn_index=1,
+                    max_turns=6,
+                    memories=[],
+                    transcript=[("Maya", hop1_decision.opening_line)],
+                ),
+                response_model=DialogueTurnResponse,
+            )
+        ).raw_text
+    )
+    assert event_phrase in hop1_turn.utterance
+
+    hop1_summary = ConversationSummaryResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=build_conversation_summary_prompt(
+                    speaker_a=maya,
+                    speaker_b=liam,
+                    location="Cafe",
+                    sim_time="Day 1 11:02",
+                    transcript=[
+                        ("Maya", hop1_decision.opening_line),
+                        ("Liam", hop1_turn.utterance),
+                    ],
+                ),
+                response_model=ConversationSummaryResponse,
+            )
+        ).raw_text
+    )
+    assert hop1_summary.summary == f"Maya and Liam discussed: {event_phrase}"
+
+    # Hop 2: Liam meets Noah later with only Hop 1's stored summary in memory.
+    hop2_decision = ConversationDecisionResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=build_conversation_decision_prompt(
+                    speaker=liam,
+                    listener=noah,
+                    location="Town Square",
+                    sim_time="Day 1 13:00",
+                    speaker_action="Walking across square",
+                    listener_action="Checking produce crates",
+                    memories=[hop1_summary.summary],
+                ),
+                response_model=ConversationDecisionResponse,
+            )
+        ).raw_text
+    )
+    assert hop2_decision.initiate is True
+    assert event_phrase in hop2_decision.opening_line
+
+    hop2_summary = ConversationSummaryResponse.model_validate_json(
+        (
+            await provider.generate_raw(
+                prompt=build_conversation_summary_prompt(
+                    speaker_a=liam,
+                    speaker_b=noah,
+                    location="Town Square",
+                    sim_time="Day 1 13:02",
+                    transcript=[("Liam", hop2_decision.opening_line)],
+                ),
+                response_model=ConversationSummaryResponse,
+            )
+        ).raw_text
+    )
+    assert hop2_summary.summary == f"Liam and Noah discussed: {event_phrase}"
+
+    gateway = LLMGateway(provider=provider)
+    ratings = await gateway.rate_importance_batch(
+        [event_memory, hop1_summary.summary, "Walked past Park"],
+        tick=800,
+        agent_id="liam",
+    )
+    assert 7 <= ratings[0] <= 9
+    assert 7 <= ratings[1] <= 9
+    assert 3 <= ratings[2] <= 6

@@ -15,9 +15,11 @@ from llm.schemas import (
     DailyPlanItem,
     DailyPlanResponse,
     DialogueTurnResponse,
+    HourlyActionPlanResponse,
     ImportanceBatchResponse,
     ReflectionInsight,
     ReflectionResponse,
+    ReplanResponse,
     SalientQuestionsResponse,
 )
 
@@ -30,6 +32,71 @@ _URGENT_KEYWORDS: tuple[str, ...] = (
     "secret",
     "discovered",
 )
+
+_URGENT_KEYWORD_PATTERN = re.compile(
+    r"\b(?:" + "|".join(re.escape(word) for word in _URGENT_KEYWORDS) + r")\b"
+)
+
+_EVENT_IMPORTANCE_MARKERS: tuple[str, ...] = (
+    "[event]",
+    "event at ",
+    "observed event:",
+    "heard ",
+    "discussed:",
+)
+
+_METADATA_LINE_PREFIXES: tuple[str, ...] = (
+    "persona:",
+    "speaker profile:",
+    "listener profile:",
+    "valid locations:",
+    "sim time:",
+    "current hour:",
+    "current time:",
+    "participants:",
+    "location:",
+    "turn:",
+    "block:",
+    "block goal:",
+    "speaker current activity:",
+    "listener current activity:",
+    "remaining schedule:",
+    "instructions:",
+    "context memories:",
+    "transcript:",
+    "create a daily schedule",
+    "decompose the active schedule",
+    "update the remainder of this villager",
+    "decide whether ",
+    "generate the next spoken reply",
+    "summarize the exchange",
+    "- return ",
+    "- every ",
+    "- keep ",
+    "- set ",
+    "- provide ",
+    "- write ",
+    "- estimate ",
+    "- address ",
+    "- (none)",
+    "(none)",
+)
+
+_TIER1_EVENT_MARKERS: tuple[str, ...] = (
+    "[event]",
+    "observed event:",
+    "interruption:",
+)
+
+_TIER2_RUMOR_MARKERS: tuple[str, ...] = (
+    "heard news:",
+    "discussed:",
+    "have you heard?",
+    "everyone should know about this:",
+    "wait, regarding ",
+)
+
+_NEUTRAL_ROUTINE_SUMMARY = "Exchanged updates about daily routines and village happenings."
 
 _LOCATIONS: tuple[str, ...] = (
     "Home_Maya",
@@ -137,6 +204,10 @@ class MockProvider:
             return self._build_importance_batch(prompt=prompt, digest=digest)
         if response_model is DailyPlanResponse:
             return self._build_daily_plan(digest=digest)
+        if response_model is ReplanResponse:
+            return self._build_replan(prompt=prompt, digest=digest)
+        if response_model is HourlyActionPlanResponse:
+            return self._build_hourly_action_plan(prompt=prompt, digest=digest)
         if response_model is DailyPlanItem:
             loc, desc = _PLAN_TEMPLATES[digest[0] % len(_PLAN_TEMPLATES)]
             return {
@@ -146,6 +217,13 @@ class MockProvider:
                 "description": desc,
             }
         if response_model is ConversationDecisionResponse:
+            topic = _extract_salient_topic(prompt)
+            if topic is not None:
+                return {
+                    "initiate": True,
+                    "reason": "Sharing important village news with nearby neighbor.",
+                    "opening_line": f"Have you heard? {topic}",
+                }
             initiate = (digest[0] % 2) == 0
             return {
                 "initiate": initiate,
@@ -161,9 +239,13 @@ class MockProvider:
                 ),
             }
         if response_model is DialogueTurnResponse:
-            lower_prompt = prompt.lower()
-            if any(word in lower_prompt for word in _URGENT_KEYWORDS):
-                utterance = "Did you hear the latest news? Everyone is talking about it."
+            topic = _extract_salient_topic(prompt)
+            if topic is not None:
+                utterance = (
+                    f"Everyone should know about this: {topic}"
+                    if (digest[0] % 2) == 0
+                    else f"Wait, regarding {topic} — I'll adjust my plans."
+                )
             else:
                 utterance = _DIALOGUE_POOL[digest[0] % len(_DIALOGUE_POOL)]
             return {
@@ -171,9 +253,17 @@ class MockProvider:
                 "continue_dialogue": (digest[1] % 4) != 0,
             }
         if response_model is ConversationSummaryResponse:
+            topic = _extract_salient_topic(prompt)
             delta = round(((digest[0] % 11) - 3) * 0.05, 2)
+            if topic is not None:
+                participants = _extract_participants(prompt)
+                return {
+                    "summary": f"{participants} discussed: {topic}",
+                    "affinity_delta": delta,
+                    "relationship_note": f"Shared urgent update about {topic[:60]}.",
+                }
             return {
-                "summary": "Exchanged updates about daily routines and village happenings.",
+                "summary": _NEUTRAL_ROUTINE_SUMMARY,
                 "affinity_delta": delta,
                 "relationship_note": "Cordial conversation in the village.",
             }
@@ -211,7 +301,10 @@ class MockProvider:
             item_digest = hashlib.sha256(digest + idx.to_bytes(4, "big")).digest()
             text = segments[idx] if idx < len(segments) else prompt
             lowered = text.lower()
-            if any(keyword in lowered for keyword in _URGENT_KEYWORDS):
+            is_urgent = bool(_URGENT_KEYWORD_PATTERN.search(lowered)) or any(
+                marker in lowered for marker in _EVENT_IMPORTANCE_MARKERS
+            )
+            if is_urgent:
                 ratings.append(7 + (item_digest[0] % 3))
             else:
                 ratings.append(3 + (item_digest[0] % 4))
@@ -241,6 +334,196 @@ class MockProvider:
             )
             current_hour = end_hour
         return {"items": items}
+
+    def _build_replan(self, *, prompt: str, digest: bytes) -> dict[str, Any]:
+        hour_match = re.search(r"(?im)^Current hour:\s*(\d+)", prompt)
+        start_hour = max(0, min(23, int(hour_match.group(1)))) if hour_match else 12
+        total_span = max(1, 24 - start_hour)
+        max_blocks = min(4, total_span)
+        item_count = 1 + (digest[0] % max_blocks)
+        base_dur, remainder = divmod(total_span, item_count)
+
+        topic = _extract_salient_topic(prompt)
+        target_loc = _extract_prompt_location(topic) if topic is not None else None
+        if target_loc is None:
+            for line in prompt.splitlines():
+                stripped = line.strip()
+                if not _is_metadata_line(stripped):
+                    target_loc = _extract_prompt_location(stripped)
+                    if target_loc is not None:
+                        break
+
+        items: list[dict[str, Any]] = []
+        current_hour = start_hour
+        for idx in range(item_count):
+            duration = base_dur + (1 if idx < remainder else 0)
+            end_hour = min(24, current_hour + max(1, duration))
+            template_idx = (idx + (digest[idx % len(digest)] % 2)) % len(_PLAN_TEMPLATES)
+            default_loc, default_desc = _PLAN_TEMPLATES[template_idx]
+            location = _LOCATIONS[(idx + digest[1]) % len(_LOCATIONS)] if idx > 0 else default_loc
+            description = default_desc
+
+            if idx == 0 and (topic is not None or target_loc is not None):
+                if target_loc is not None:
+                    location = target_loc
+                description = (
+                    f"Respond to {topic}"
+                    if topic is not None
+                    else f"Adjust plans at {location}"
+                )
+
+            items.append(
+                {
+                    "start_hour": current_hour,
+                    "end_hour": end_hour,
+                    "location": location,
+                    "description": description,
+                }
+            )
+            current_hour = end_hour
+        return {"items": items}
+
+    def _build_hourly_action_plan(self, *, prompt: str, digest: bytes) -> dict[str, Any]:
+        block_match = re.search(r"(?im)^Block:\s*(\d+):00-(\d+):00\s+at\s+([^\n]+)", prompt)
+        time_match = re.search(r"(?im)^Current time:\s*(\d+):(\d+)", prompt)
+        goal_match = re.search(r"(?im)^Block goal:\s*([^\n]+)", prompt)
+
+        block_start = int(block_match.group(1)) if block_match else 9
+        if block_match is not None:
+            raw_loc = block_match.group(3).strip()
+            location = _extract_prompt_location(raw_loc) or _LOCATIONS[digest[0] % len(_LOCATIONS)]
+        else:
+            location = _extract_prompt_location(prompt) or _LOCATIONS[digest[0] % len(_LOCATIONS)]
+
+        current_hour = max(0, min(23, int(time_match.group(1)))) if time_match else block_start
+        current_minute = max(0, min(59, int(time_match.group(2)))) if time_match else 0
+
+        topic = _extract_salient_topic(prompt)
+        if topic is not None:
+            hourly_focus = (
+                f"Respond to {topic} at {location} ({current_hour:02d}:{current_minute:02d})"
+            )
+        elif goal_match is not None and goal_match.group(1).strip():
+            hourly_focus = f"{goal_match.group(1).strip()} at {location}"
+        else:
+            hourly_focus = (
+                f"Follow scheduled activity at {location} from "
+                f"{current_hour:02d}:{current_minute:02d}"
+            )
+
+        action_count = 1 + (digest[1] % 3)
+        step_templates = (
+            f"Arrive at {location} and begin {topic or 'scheduled work'}",
+            f"Carry out main task at {location}",
+            f"Wrap up notes and prepare next step at {location}",
+        )
+        actions: list[dict[str, Any]] = []
+        for idx in range(action_count):
+            dur = 10 + ((digest[(idx + 2) % len(digest)] % 8) * 5)  # 10..45 minutes
+            actions.append(
+                {
+                    "duration_minutes": dur,
+                    "location": location,
+                    "action": step_templates[idx % len(step_templates)],
+                }
+            )
+        return {"hourly_focus": hourly_focus, "actions": actions}
+
+
+def _is_metadata_line(line: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return True
+    return stripped.lower().startswith(_METADATA_LINE_PREFIXES)
+
+
+def _clean_topic_payload(raw: str) -> str | None:
+    cleaned = " ".join(raw.strip().split())
+    cleaned = re.sub(r"^[\s:\-]+", "", cleaned)
+    cleaned = re.sub(r"\s+—\s+I'll adjust my plans\.?$", "", cleaned)
+    lowered = cleaned.lower()
+    if lowered in {"", "(none)", "none"}:
+        return None
+    if "exchanged updates about daily routines" in lowered:
+        return None
+    if len(cleaned) > 110:
+        return cleaned[:107].rstrip() + "..."
+    return cleaned
+
+
+def _extract_after_marker(line: str, markers: tuple[str, ...]) -> str | None:
+    lowered = line.lower()
+    for marker in markers:
+        idx = lowered.find(marker)
+        if idx == -1:
+            continue
+        remainder = line[idx + len(marker) :]
+        if marker == "conversation with " and ":" in remainder:
+            remainder = remainder.split(":", 1)[1]
+        cleaned = _clean_topic_payload(remainder)
+        if cleaned is not None:
+            return cleaned
+    return None
+
+
+def _extract_salient_topic(prompt: str) -> str | None:
+    """Extract an injected event, interruption, or rumor topic from a prompt."""
+    candidate_lines = [
+        line.strip() for line in prompt.splitlines() if not _is_metadata_line(line)
+    ]
+    for marker_group in (
+        _TIER1_EVENT_MARKERS,
+        _TIER2_RUMOR_MARKERS,
+        ("conversation with ",),
+    ):
+        for line in candidate_lines:
+            extracted = _extract_after_marker(line, marker_group)
+            if extracted is not None:
+                return extracted
+
+    for line in candidate_lines:
+        if _URGENT_KEYWORD_PATTERN.search(line.lower()):
+            stripped = re.sub(r"^-\s*", "", line)
+            stripped = re.sub(r"^[A-Z][A-Za-z]+:\s*", "", stripped)
+            cleaned = _clean_topic_payload(stripped)
+            if cleaned is not None:
+                return cleaned
+    return None
+
+
+def _extract_prompt_location(text: str) -> str | None:
+    """Match a known village location case-insensitively inside a text snippet."""
+    lowered = text.lower()
+    for location in sorted(_LOCATIONS, key=len, reverse=True):
+        pattern = rf"(?<![a-z0-9_]){re.escape(location.lower())}(?![a-z0-9_])"
+        if re.search(pattern, lowered):
+            return location
+    return None
+
+
+def _extract_participants(prompt: str) -> str:
+    header_match = re.search(r"(?im)^Participants:\s*([^\n]+)", prompt)
+    if header_match is not None:
+        raw = " ".join(header_match.group(1).strip().split())
+        if "," in raw and " and " not in raw:
+            parts = [part.strip() for part in raw.split(",") if part.strip()]
+            if len(parts) == 2:
+                return f"{parts[0]} and {parts[1]}"
+            if parts:
+                return ", ".join(parts)
+        if raw:
+            return raw
+
+    speaker_names: list[str] = []
+    for match in re.finditer(r"(?m)^-\s*([A-Z][A-Za-z]+):\s+", prompt):
+        name = match.group(1).strip()
+        if name not in speaker_names:
+            speaker_names.append(name)
+    if len(speaker_names) >= 2:
+        return f"{speaker_names[0]} and {speaker_names[1]}"
+    if len(speaker_names) == 1:
+        return speaker_names[0]
+    return "Neighbors"
 
 
 def _extract_batch_items(prompt: str) -> tuple[int, list[str]]:

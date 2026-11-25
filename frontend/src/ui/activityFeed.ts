@@ -9,6 +9,7 @@ const MAX_FEED_ITEMS = 25;
 /** Translucent overlay rendering live server event and dialogue updates without innerHTML. */
 export class ActivityFeed {
   private readonly listEl: HTMLDivElement | null;
+  private titleEl: HTMLSpanElement | null = null;
   private emptyEl: HTMLDivElement | null = null;
 
   constructor(containerEl: HTMLElement | null) {
@@ -22,19 +23,37 @@ export class ActivityFeed {
 
     const titleEl = document.createElement("span");
     titleEl.textContent = "Live Activity";
+    this.titleEl = titleEl;
     headerEl.appendChild(titleEl);
 
     const listEl = document.createElement("div");
     listEl.className = "feed-list";
     this.listEl = listEl;
 
-    const emptyEl = document.createElement("div");
-    emptyEl.className = "feed-empty";
-    emptyEl.textContent = "Waiting for live events and conversations...";
-    this.emptyEl = emptyEl;
-    listEl.appendChild(emptyEl);
+    this.clear();
 
     containerEl.replaceChildren(headerEl, listEl);
+  }
+
+  /** Update the activity feed header label (e.g. Live Activity vs Replay Activity). */
+  public setModeLabel(label: string): void {
+    if (this.titleEl !== null) {
+      this.titleEl.textContent = label;
+    }
+  }
+
+  /** Clear all rendered activity entries and restore a fresh empty placeholder. */
+  public clear(
+    emptyText = "Waiting for live events and conversations...",
+  ): void {
+    if (this.listEl === null) {
+      return;
+    }
+    const emptyEl = document.createElement("div");
+    emptyEl.className = "feed-empty";
+    emptyEl.textContent = emptyText;
+    this.emptyEl = emptyEl;
+    this.listEl.replaceChildren(emptyEl);
   }
 
   /** Prepend a god-mode or world event card to the feed. */

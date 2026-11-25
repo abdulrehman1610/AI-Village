@@ -176,15 +176,32 @@ export class VillageScene extends Phaser.Scene {
     }
   }
 
+  /** Clear queued dialogue timers, speech bubbles, transient cues, and active agent tweens. */
+  public resetTransientVisuals(): void {
+    this.cleanupTransientVisuals();
+    this.speakerDialogueSeq.clear();
+    if (this.isReady) {
+      for (const visual of this.agentVisuals.values()) {
+        this.tweens.killTweensOf(visual.container);
+      }
+    }
+  }
+
   /** Apply an authoritative server tick snapshot to agent visuals without client pathfinding. */
-  public applyTick(tickMsg: TickMessage): void {
+  public applyTick(
+    tickMsg: TickMessage,
+    options?: { immediate?: boolean },
+  ): void {
     if (!this.isReady) {
       this.pendingTick = tickMsg;
       return;
     }
 
     const safeSpeed = tickMsg.speed > 0 ? tickMsg.speed : 1;
-    const tweenDuration = Math.min(450, Math.max(45, (1000 / safeSpeed) * 0.8));
+    const tweenDuration =
+      options?.immediate === true
+        ? 0
+        : Math.min(450, Math.max(45, (1000 / safeSpeed) * 0.8));
 
     for (const agent of tickMsg.agents) {
       this.syncAgentVisual(agent, tickMsg.tick, tweenDuration);
@@ -612,6 +629,16 @@ export class VillageScene extends Phaser.Scene {
         lastX: agent.x,
         lastY: agent.y,
       });
+      return;
+    }
+
+    if (tweenDuration <= 0) {
+      this.tweens.killTweensOf(existing.container);
+      existing.container.setPosition(targetPx, targetPy);
+      existing.sprite.setFrame(baseFrame);
+      existing.container.setDepth(10 + agent.y);
+      existing.lastX = agent.x;
+      existing.lastY = agent.y;
       return;
     }
 

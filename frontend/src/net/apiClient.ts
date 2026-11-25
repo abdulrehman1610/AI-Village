@@ -2,13 +2,19 @@
 
 import {
   isAgentDetail,
+  isMetricsSnapshot,
   isRelationshipsResponse,
+  isReplayDaysResponse,
+  isReplayLogResponse,
   isSimControlResponse,
   type AgentDetail,
   type InjectEventRequest,
   type InjectEventResponse,
+  type MetricsSnapshot,
   type NamedLocationInfo,
   type RelationshipsResponse,
+  type ReplayDaysResponse,
+  type ReplayLogResponse,
   type SimControlResponse,
   type SimSpeed,
   type WorldInfo,
@@ -160,4 +166,22 @@ export async function fetchAgentDetail(agentId: string): Promise<AgentDetail> {
 /** Fetch canonical pairwise relationships and agent node metadata from GET /relationships. */
 export async function fetchRelationships(): Promise<RelationshipsResponse> {
   return requestJson("/relationships", undefined, isRelationshipsResponse);
+}
+
+/** Fetch aggregated LLM call, token, cost, and latency telemetry from GET /metrics. */
+export async function fetchMetrics(): Promise<MetricsSnapshot> {
+  return requestJson("/metrics", undefined, isMetricsSnapshot);
+}
+
+/** Fetch available recorded simulation days and tick summaries from GET /replay. */
+export async function fetchReplayDays(): Promise<ReplayDaysResponse> {
+  return requestJson("/replay", undefined, isReplayDaysResponse);
+}
+
+/** Fetch ordered replay frames for a 1-indexed simulated day from GET /replay/{day}. */
+export async function fetchReplayDay(day: number): Promise<ReplayLogResponse> {
+  if (!Number.isInteger(day) || day < 1) {
+    throw new Error("Replay day must be a positive integer");
+  }
+  return requestJson(`/replay/${day}`, undefined, isReplayLogResponse);
 }

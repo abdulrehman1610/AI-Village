@@ -3,10 +3,12 @@
 import {
   isDialogueMessage,
   isEventMessage,
+  isMetricsMessage,
   isReflectionMessage,
   isTickMessage,
   type DialogueMessage,
   type EventMessage,
+  type MetricsMessage,
   type ReflectionMessage,
   type TickMessage,
   type WsConnectionState,
@@ -17,6 +19,7 @@ export interface VillageWsClientCallbacks {
   onDialogue?: (msg: DialogueMessage) => void;
   onEvent?: (msg: EventMessage) => void;
   onReflection?: (msg: ReflectionMessage) => void;
+  onMetrics?: (msg: MetricsMessage) => void;
   onStatusChange?: (status: WsConnectionState) => void;
 }
 
@@ -94,6 +97,8 @@ export class VillageWsClient {
           this.callbacks.onEvent?.(parsed);
         } else if (isReflectionMessage(parsed)) {
           this.callbacks.onReflection?.(parsed);
+        } else if (isMetricsMessage(parsed)) {
+          this.callbacks.onMetrics?.(parsed);
         }
       } catch {
         // Ignore malformed JSON payloads without disrupting the Phaser render loop.

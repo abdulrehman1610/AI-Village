@@ -7,6 +7,7 @@ import hashlib
 import json
 import time
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TypeVar
 
 from pydantic import BaseModel, ValidationError
@@ -52,6 +53,101 @@ MODEL_PRICING_PER_MILLION: dict[str, tuple[float, float]] = {
 
 class LLMGatewayError(RuntimeError):
     """Raised when an LLM response fails schema validation after exhausting retries."""
+
+
+class PurposeMetrics(BaseModel):
+    """Aggregated LLM call, token, cost, and latency metrics for one call purpose."""
+
+    purpose: str
+    calls: int
+    cache_hits: int
+    tokens_in: int
+    tokens_out: int
+    total_tokens: int
+    cost_est: float
+    avg_latency_ms: float
+
+
+class ModelMetrics(BaseModel):
+    """Aggregated LLM call, token, cost, and latency metrics for one model."""
+
+    model: str
+    calls: int
+    cache_hits: int
+    tokens_in: int
+    tokens_out: int
+    total_tokens: int
+    cost_est: float
+    avg_latency_ms: float
+
+
+class TickMetricsPoint(BaseModel):
+    """Per-tick and cumulative token/cost telemetry series point."""
+
+    tick: int
+    calls: int
+    cache_hits: int
+    tokens_in: int
+    tokens_out: int
+    total_tokens: int
+    cost_est: float
+    avg_latency_ms: float
+    cumulative_tokens: int
+    cumulative_cost_est: float
+
+
+class MetricsSnapshot(BaseModel):
+    """Full LLM telemetry snapshot for REST `/metrics` and WebSocket `metrics` frames."""
+
+    tick: int = 0
+    sim_time: str = "Day 1 06:00"
+    day: int = 1
+    total_calls: int
+    cache_hits: int
+    cache_hit_rate: float
+    tokens_in: int
+    tokens_out: int
+    total_tokens: int
+    cost_est: float
+    avg_latency_ms: float
+    max_latency_ms: float
+    daily_budget_usd: float
+    daily_token_limit: int
+    budget_day: int
+    budget_tokens_used: int
+    budget_cost_used: float
+    by_purpose: list[PurposeMetrics]
+    by_model: list[ModelMetrics]
+    history: list[TickMetricsPoint]
+
+
+@dataclass
+class _MetricsBucket:
+    """Mutable accumulator for grouping LLM call telemetry rows."""
+
+    calls: int = 0
+    cache_hits: int = 0
+    tokens_in: int = 0
+    tokens_out: int = 0
+    cost_est: float = 0.0
+    latency_sum_ms: float = 0.0
+
+    def add(self, row: LLMCallRecord) -> None:
+        self.calls += 1
+        if row.cache_hit:
+            self.cache_hits += 1
+        self.tokens_in += row.tokens_in
+        self.tokens_out += row.tokens_out
+        self.cost_est += row.cost_est
+        self.latency_sum_ms += row.latency_ms
+
+    @property
+    def total_tokens(self) -> int:
+        return self.tokens_in + self.tokens_out
+
+    @property
+    def avg_latency_ms(self) -> float:
+        return self.latency_sum_ms / self.calls if self.calls > 0 else 0.0
 
 
 def estimate_cost_usd(model: str, tokens_in: int, tokens_out: int) -> float:
@@ -111,6 +207,13 @@ class LLMGateway:
         self._daily_cache_hits: dict[int, int] = {}
         self._daily_tokens_in: dict[int, int] = {}
         self._daily_tokens_out: dict[int, int] = {}
+        self._recorded_call_count: int = 0
+        self._memory_records: list[LLMCallRecord] = []
+
+    @property
+    def total_recorded_calls(self) -> int:
+        """Return the number of LLM call records logged by this gateway instance."""
+        return self._recorded_call_count
 
     @staticmethod
     def day_for_tick(tick: int) -> int:
@@ -477,6 +580,145 @@ class LLMGateway:
                 "cost_est": sum(self._daily_cost.values()),
             }
 
+    async def get_metrics_snapshot(
+        self,
+        *,
+        tick: int = 0,
+        sim_time: str = "Day 1 06:00",
+        day: int = 1,
+        max_history_points: int = 120,
+    ) -> MetricsSnapshot:
+        """Aggregate totals, latency, cache hit rate, budget usage, breakdowns, and tick series."""
+        if self.db is not None:
+            stmt = select(LLMCallRecord).order_by(
+                col(LLMCallRecord.tick),
+                col(LLMCallRecord.id),
+            )
+            async with self.db.session() as session:
+                rows = list((await session.exec(stmt)).all())
+        else:
+            async with self._lock:
+                rows = sorted(self._memory_records, key=lambda row: row.tick)
+
+        total_calls = len(rows)
+        cache_hits = 0
+        tokens_in = 0
+        tokens_out = 0
+        cost_est = 0.0
+        latency_sum_ms = 0.0
+        max_latency_ms = 0.0
+
+        budget_day = self.day_for_tick(tick)
+        budget_tokens_used = 0
+        budget_cost_used = 0.0
+
+        purpose_buckets: dict[str, _MetricsBucket] = {}
+        model_buckets: dict[str, _MetricsBucket] = {}
+        tick_buckets: dict[int, _MetricsBucket] = {}
+
+        for row in rows:
+            if row.cache_hit:
+                cache_hits += 1
+            elif self.day_for_tick(row.tick) == budget_day:
+                budget_tokens_used += row.tokens_in + row.tokens_out
+                budget_cost_used += row.cost_est
+
+            tokens_in += row.tokens_in
+            tokens_out += row.tokens_out
+            cost_est += row.cost_est
+            latency_sum_ms += row.latency_ms
+            if row.latency_ms > max_latency_ms:
+                max_latency_ms = row.latency_ms
+
+            purpose_buckets.setdefault(row.purpose, _MetricsBucket()).add(row)
+            model_buckets.setdefault(row.model, _MetricsBucket()).add(row)
+            tick_buckets.setdefault(row.tick, _MetricsBucket()).add(row)
+
+        total_tokens = tokens_in + tokens_out
+        cache_hit_rate = (cache_hits / total_calls) if total_calls > 0 else 0.0
+        avg_latency_ms = (latency_sum_ms / total_calls) if total_calls > 0 else 0.0
+
+        by_purpose = [
+            PurposeMetrics(
+                purpose=purpose,
+                calls=bucket.calls,
+                cache_hits=bucket.cache_hits,
+                tokens_in=bucket.tokens_in,
+                tokens_out=bucket.tokens_out,
+                total_tokens=bucket.total_tokens,
+                cost_est=bucket.cost_est,
+                avg_latency_ms=bucket.avg_latency_ms,
+            )
+            for purpose, bucket in sorted(
+                purpose_buckets.items(),
+                key=lambda item: (-item[1].calls, item[0]),
+            )
+        ]
+
+        by_model = [
+            ModelMetrics(
+                model=model,
+                calls=bucket.calls,
+                cache_hits=bucket.cache_hits,
+                tokens_in=bucket.tokens_in,
+                tokens_out=bucket.tokens_out,
+                total_tokens=bucket.total_tokens,
+                cost_est=bucket.cost_est,
+                avg_latency_ms=bucket.avg_latency_ms,
+            )
+            for model, bucket in sorted(
+                model_buckets.items(),
+                key=lambda item: (-item[1].calls, item[0]),
+            )
+        ]
+
+        history: list[TickMetricsPoint] = []
+        cumulative_tokens = 0
+        cumulative_cost_est = 0.0
+        for point_tick, bucket in sorted(tick_buckets.items(), key=lambda item: item[0]):
+            cumulative_tokens += bucket.total_tokens
+            cumulative_cost_est += bucket.cost_est
+            history.append(
+                TickMetricsPoint(
+                    tick=point_tick,
+                    calls=bucket.calls,
+                    cache_hits=bucket.cache_hits,
+                    tokens_in=bucket.tokens_in,
+                    tokens_out=bucket.tokens_out,
+                    total_tokens=bucket.total_tokens,
+                    cost_est=bucket.cost_est,
+                    avg_latency_ms=bucket.avg_latency_ms,
+                    cumulative_tokens=cumulative_tokens,
+                    cumulative_cost_est=cumulative_cost_est,
+                )
+            )
+
+        if max_history_points > 0:
+            history = history[-max_history_points:]
+
+        return MetricsSnapshot(
+            tick=tick,
+            sim_time=sim_time,
+            day=day,
+            total_calls=total_calls,
+            cache_hits=cache_hits,
+            cache_hit_rate=cache_hit_rate,
+            tokens_in=tokens_in,
+            tokens_out=tokens_out,
+            total_tokens=total_tokens,
+            cost_est=cost_est,
+            avg_latency_ms=avg_latency_ms,
+            max_latency_ms=max_latency_ms,
+            daily_budget_usd=self.daily_budget_usd,
+            daily_token_limit=self.daily_token_limit,
+            budget_day=budget_day,
+            budget_tokens_used=budget_tokens_used,
+            budget_cost_used=budget_cost_used,
+            by_purpose=by_purpose,
+            by_model=by_model,
+            history=history,
+        )
+
     def _resolve_requested_model(
         self,
         *,
@@ -492,6 +734,7 @@ class LLMGateway:
 
     async def _record_call(self, *, day: int, record: LLMCallRecord) -> None:
         async with self._lock:
+            self._recorded_call_count += 1
             self._daily_calls[day] = self._daily_calls.get(day, 0) + 1
             if record.cache_hit:
                 self._daily_cache_hits[day] = self._daily_cache_hits.get(day, 0) + 1
@@ -506,6 +749,8 @@ class LLMGateway:
                     self._daily_tokens.get(day, 0) + record.tokens_in + record.tokens_out
                 )
                 self._daily_cost[day] = self._daily_cost.get(day, 0.0) + record.cost_est
+            if self.db is None:
+                self._memory_records.append(record)
 
         if self.db is not None:
             async with self.db.session() as session:

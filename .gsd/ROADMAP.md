@@ -6,7 +6,7 @@ updated: 2026-11-23T23:39:00+05:00
 
 # Roadmap
 
-> **Current Phase:** 4 - Reflection, Relationships, Agent Inspector & Time Controls
+> **Current Phase:** 5 - Cost Dashboard, Replay, Relationship Graph, Tests & CI
 > **Status:** planning
 
 ## Must-Haves (from SPEC)
@@ -15,7 +15,7 @@ updated: 2026-11-23T23:39:00+05:00
 - [x] Hand-written A* pathfinding (`heapq`, Manhattan heuristic) navigating agents without wall clipping or tile overlap
 - [x] 6–10 autonomous agents with SQLite persistence, memory stream, local embeddings, and weighted retrieval scoring (`recency + importance + relevance`)
 - [x] Single schema-enforcing LLM gateway with Pydantic v2 validation, retry, prompt cache, call budget, cost logging, Gemini Flash provider, and deterministic mock provider
-- [ ] Full agent cognitive loop: hierarchical daily planning (day → hour → minute), proximity conversations (≤6 turns + summary), god-mode event injection, and threshold-triggered reflections
+- [x] Full agent cognitive loop: hierarchical daily planning (day → hour → minute), proximity conversations (≤6 turns + summary), god-mode event injection, and threshold-triggered reflections
 - [ ] Interactive UI panels: Agent Inspector, Time Controls (Pause/Play/1x/4x/16x), Cytoscape.js Relationship Graph, Chart.js Cost/Token Dashboard, and JSONL Day Replay
 - [ ] 100-tick deterministic integration test, passing `ruff` + `mypy` + `pytest` CI pipeline, Docker setup, README, and AI Lab Report
 
@@ -72,24 +72,24 @@ updated: 2026-11-23T23:39:00+05:00
 ---
 
 ### Phase 4: Reflection, Relationships, Agent Inspector & Time Controls
-**Status:** 🔄 In Progress
+**Status:** ✅ Complete
 **Objective:** Add threshold-triggered agent reflections (salient questions → evidence retrieval → cited insights stored as memories), pairwise relationship affinity and notes updates on interactions, the clickable Agent Inspector frontend panel (`GET /agents/{id}` showing plan, memories, mood, relationships), and simulation time controls (`POST /sim/start`, `/sim/pause`, `/sim/speed` for 1x/4x/16x).
 **Depends on:** Phase 3
 **Requirements:** REQ-09, REQ-10 (backend), REQ-11, REQ-12
 
 **Plans:**
-- [ ] Plan 4.1: Add reflection prompts, mood schema fields, LLMGateway reflection helpers, and mood/topic-aware MockProvider (Wave 1)
-- [ ] Plan 4.2: Add Settings.reflection_threshold, AgentRecord.mood with idempotent SQLite migration, and canonical relationship upserts (Wave 1)
-- [ ] Plan 4.3: Add frontend Phase 4 types/runtime guards, REST apiClient helpers, WS reflection dispatch, and Vite proxies (Wave 1)
-- [ ] Plan 4.4: Implement ReflectionManager, AgentBrain plan/reflection importance accounting, and ConversationManager mood/relationship updates (Wave 2)
-- [ ] Plan 4.5: Add HUD TimeControls, drag-safe sprite/chip selection, left-docked AgentInspector, and reflection UI/Phaser cues (Wave 2)
-- [ ] Plan 4.6: Wire ReflectionManager, agent mood sync, and interruptible start/pause/speed controls into SimulationEngine and main.py (Wave 3)
-- [ ] Plan 4.7: Implement /sim/*, /agents/{id}, and /relationships REST endpoints plus Phase 4 offline integration and full-stack verification (Wave 4)
+- [x] Plan 4.1: Add reflection prompts, mood schema fields, LLMGateway reflection helpers, and mood/topic-aware MockProvider (Wave 1)
+- [x] Plan 4.2: Add Settings.reflection_threshold, AgentRecord.mood with idempotent SQLite migration, and canonical relationship upserts (Wave 1)
+- [x] Plan 4.3: Add frontend Phase 4 types/runtime guards, REST apiClient helpers, WS reflection dispatch, and Vite proxies (Wave 1)
+- [x] Plan 4.4: Implement ReflectionManager, AgentBrain plan/reflection importance accounting, and ConversationManager mood/relationship updates (Wave 2)
+- [x] Plan 4.5: Add HUD TimeControls, drag-safe sprite/chip selection, left-docked AgentInspector, and reflection UI/Phaser cues (Wave 2)
+- [x] Plan 4.6: Wire ReflectionManager, agent mood sync, and interruptible start/pause/speed controls into SimulationEngine and main.py (Wave 3)
+- [x] Plan 4.7: Implement /sim/*, /agents/{id}, and /relationships REST endpoints plus Phase 4 offline integration and full-stack verification (Wave 4)
 
 ---
 
 ### Phase 5: Cost Dashboard, Replay, Relationship Graph, Tests & CI
-**Status:** ⬜ Not Started
+**Status:** 🔄 In Progress
 **Objective:** Build the Chart.js cost/token/latency dashboard (`GET /metrics` + live WS `metrics`), the Cytoscape.js interactive relationship graph view (`GET /relationships`), the JSONL event log writer and day replay mode (`GET /replay/{day}` + UI replay controls), the 100-tick deterministic integration and behavior test suite, and the GitHub Actions CI workflow (`ruff`, `mypy`, `pytest`, frontend build).
 **Depends on:** Phase 4
 **Requirements:** REQ-10 (graph UI), REQ-13, REQ-14, REQ-16 (CI), NFR-03, NFR-04, NFR-05
@@ -111,8 +111,8 @@ updated: 2026-11-23T23:39:00+05:00
 | 1 | ✅ | 6/6 | 100% |
 | 2 | ✅ | 5/5 | 100% |
 | 3 | ✅ | 8/8 | 100% |
-| 4 | 🔄 | 0/7 | — |
-| 5 | ⬜ | 0/TBD | — |
+| 4 | ✅ | 7/7 | 100% |
+| 5 | 🔄 | 0/TBD | — |
 | 6 | ⬜ | 0/TBD | — |
 
 ---
@@ -124,6 +124,6 @@ updated: 2026-11-23T23:39:00+05:00
 | 1 | 2026-11-23 | 2026-11-24 | ~50m |
 | 2 | 2026-11-24 | 2026-11-24 | ~70m |
 | 3 | 2026-11-24 | 2026-11-24 | ~90m |
-| 4 | 2026-11-24 | — | — |
-| 5 | — | — | — |
+| 4 | 2026-11-24 | 2026-11-25 | ~55m |
+| 5 | 2026-11-25 | — | — |
 | 6 | — | — | — |

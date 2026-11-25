@@ -1,0 +1,834 @@
+{
+  "ticks_completed": 1440,
+  "seed": 42,
+  "start_sim_time": "Day 1 06:00",
+  "end_sim_time": "Day 2 06:00",
+  "end_day": 2,
+  "wall_clock_seconds": 383.596,
+  "ms_per_tick": 266.39,
+  "invariants": {
+    "wall_collisions": 0,
+    "tile_overlaps": 0,
+    "stationary_overlaps": 0,
+    "invalid_path_steps": 0,
+    "missing_plan_states": 0,
+    "all_passed": true
+  },
+  "plans": {
+    "day1_agents_planned": [
+      "aria",
+      "clara",
+      "elena",
+      "liam",
+      "marcus",
+      "maya",
+      "noah",
+      "sam"
+    ],
+    "day1_agents_planned_count": 8,
+    "day2_agents_planned": [
+      "aria",
+      "clara",
+      "elena",
+      "liam",
+      "marcus",
+      "maya",
+      "noah",
+      "sam"
+    ],
+    "day2_agents_planned_count": 8,
+    "total_plan_memories": 398,
+    "daily_plan_calls": 16,
+    "replan_calls": 382,
+    "action_decomposition_calls": 481
+  },
+  "events": {
+    "db_event_count": 2,
+    "injected": [
+      {
+        "id": 1,
+        "tick": 380,
+        "sim_time": "Day 1 12:20",
+        "location": "Market",
+        "text": "Sudden fire near the Market spice stalls",
+        "affected_agents": [
+          "aria",
+          "elena",
+          "maya"
+        ],
+        "replan_cleared_at": {
+          "aria": 381,
+          "elena": 381,
+          "maya": 381
+        }
+      },
+      {
+        "id": 2,
+        "tick": 440,
+        "sim_time": "Day 1 13:20",
+        "location": "Bakery",
+        "text": "Rumor spreads that Maya hid rare saffron loaves at the Bakery",
+        "affected_agents": [
+          "clara",
+          "marcus"
+        ],
+        "replan_cleared_at": {
+          "clara": 441,
+          "marcus": 441
+        }
+      }
+    ]
+  },
+  "memories": {
+    "total": 2839,
+    "by_type": {
+      "conversation": 548,
+      "observation": 1748,
+      "plan": 398,
+      "reflection": 145
+    },
+    "per_agent_counts": {
+      "aria": 361,
+      "clara": 411,
+      "elena": 369,
+      "liam": 420,
+      "marcus": 211,
+      "maya": 394,
+      "noah": 368,
+      "sam": 305
+    }
+  },
+  "conversations": {
+    "total": 274,
+    "turn_count_min": 2,
+    "turn_count_max": 6,
+    "turn_count_avg": 3.89,
+    "unique_pairs": 28
+  },
+  "rumor_propagation": {
+    "market_fire": {
+      "event_tick": 380,
+      "location": "Market",
+      "text": "Sudden fire near the Market spice stalls",
+      "initial_affected_agents": [
+        "aria",
+        "elena",
+        "maya"
+      ],
+      "initial_count": 3,
+      "final_aware_agents": [
+        "aria",
+        "clara",
+        "elena",
+        "liam",
+        "marcus",
+        "maya",
+        "noah",
+        "sam"
+      ],
+      "final_count": 8,
+      "secondary_spread_agents": [
+        "clara",
+        "liam",
+        "marcus",
+        "noah",
+        "sam"
+      ],
+      "spread_delta": 5,
+      "first_seen_tick_by_agent": {
+        "aria": 380,
+        "clara": 553,
+        "elena": 380,
+        "liam": 436,
+        "marcus": 806,
+        "maya": 380,
+        "noah": 424,
+        "sam": 442
+      }
+    },
+    "bakery_saffron_rumor": {
+      "event_tick": 440,
+      "location": "Bakery",
+      "text": "Rumor spreads that Maya hid rare saffron loaves at the Bakery",
+      "initial_affected_agents": [
+        "clara",
+        "marcus"
+      ],
+      "initial_count": 2,
+      "final_aware_agents": [
+        "aria",
+        "clara",
+        "elena",
+        "liam",
+        "marcus",
+        "maya",
+        "noah",
+        "sam"
+      ],
+      "final_count": 8,
+      "secondary_spread_agents": [
+        "aria",
+        "elena",
+        "liam",
+        "maya",
+        "noah",
+        "sam"
+      ],
+      "spread_delta": 6,
+      "first_seen_tick_by_agent": {
+        "aria": 1041,
+        "clara": 440,
+        "elena": 812,
+        "liam": 1105,
+        "marcus": 440,
+        "maya": 896,
+        "noah": 1094,
+        "sam": 1092
+      }
+    }
+  },
+  "reflections": {
+    "total_memories": 145,
+    "agents_reflected": [
+      "aria",
+      "clara",
+      "elena",
+      "liam",
+      "marcus",
+      "maya",
+      "noah",
+      "sam"
+    ],
+    "agents_reflected_count": 8,
+    "cited_reflections_count": 145,
+    "unique_cited_memory_ids": 290,
+    "min_citations_per_reflection": 5,
+    "max_citations_per_reflection": 5
+  },
+  "relationships": {
+    "total_nodes": 8,
+    "total_edges": 28,
+    "affinity_min": -0.3,
+    "affinity_max": 1.0,
+    "affinity_avg": 0.6607,
+    "positive_edges": 26,
+    "negative_edges": 2,
+    "neutral_edges": 0,
+    "edges": [
+      {
+        "agent_a": "aria",
+        "agent_b": "clara",
+        "agent_a_name": "Aria",
+        "agent_b_name": "Clara",
+        "affinity": 0.3,
+        "notes": "Shared urgent update about at Bakery: Rumor spreads that Maya hid rare saffron loaves a.",
+        "last_interaction_tick": 1432
+      },
+      {
+        "agent_a": "aria",
+        "agent_b": "elena",
+        "agent_a_name": "Aria",
+        "agent_b_name": "Elena",
+        "affinity": 1.0,
+        "notes": "Shared urgent update about at Bakery: Rumor spreads that Maya hid rare saffron loaves a.",
+        "last_interaction_tick": 1437
+      },
+      {
+        "agent_a": "aria",
+        "agent_b": "liam",
+        "agent_a_name": "Aria",
+        "agent_b_name": "Liam",
+        "affinity": 0.35,
+        "notes": "Shared urgent update about at Bakery: Rumor spreads that Maya hid rare saffron loaves a.",
+        "last_interaction_tick": 1317
+      },
+      {
+        "agent_a": "aria",
+        "agent_b": "marcus",
+        "agent_a_name": "Aria",
+        "agent_b_name": "Marcus",
+        "affinity": 0.4,
+        "notes": "Cordial conversation in the village.",
+        "last_interaction_tick": 313
+      },
+      {
+        "agent_a": "aria",
+        "agent_b": "maya",
+        "agent_a_name": "Aria",
+        "agent_b_name": "Maya",
+        "affinity": 1.0,
+        "notes": "Shared urgent update about Saw Aria nearby (Arrive at Market and begin Saw Maya nearby .",
+        "last_interaction_tick": 1043
+      },
+      {
+        "agent_a": "aria",
+        "agent_b": "noah",
+        "agent_a_name": "Aria",
+        "agent_b_name": "Noah",
+        "affinity": 1.0,
+        "notes": "Shared urgent update about at Market: Sudden fire near the Market spice stalls.",
+        "last_interaction_tick": 1354
+      },
+      {
+        "agent_a": "aria",
+        "agent_b": "sam",
+        "agent_a_name": "Aria",
+        "agent_b_name": "Sam",
+        "affinity": 0.7,
+        "notes": "Shared urgent update about Saw Maya nearby (Arrive at Market and begin at Market: Sudde.",
+        "last_interaction_tick": 992
+      },
+      {
+        "agent_a": "clara",
+        "agent_b": "elena",
+        "agent_a_name": "Clara",
+        "agent_b_name": "Elena",
+        "affinity": 1.0,
+        "notes": "Shared urgent update about at Market: Sudden fire near the Market spice stalls.",
+        "last_interaction_tick": 972
+      },
+      {
+        "agent_a": "clara",
+        "agent_b": "liam",
+        "agent_a_name": "Clara",
+        "agent_b_name": "Liam",
+        "affinity": 1.0,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1402
+      },
+      {
+        "agent_a": "clara",
+        "agent_b": "marcus",
+        "agent_a_name": "Clara",
+        "agent_b_name": "Marcus",
+        "affinity": 0.15,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1178
+      },
+      {
+        "agent_a": "clara",
+        "agent_b": "maya",
+        "agent_a_name": "Clara",
+        "agent_b_name": "Maya",
+        "affinity": 0.65,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1438
+      },
+      {
+        "agent_a": "clara",
+        "agent_b": "noah",
+        "agent_a_name": "Clara",
+        "agent_b_name": "Noah",
+        "affinity": 0.95,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1214
+      },
+      {
+        "agent_a": "clara",
+        "agent_b": "sam",
+        "agent_a_name": "Clara",
+        "agent_b_name": "Sam",
+        "affinity": 1.0,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1114
+      },
+      {
+        "agent_a": "elena",
+        "agent_b": "liam",
+        "agent_a_name": "Elena",
+        "agent_b_name": "Liam",
+        "affinity": 0.85,
+        "notes": "Shared urgent update about Saw Aria nearby (Arrive at Market and begin at Market: Sudde.",
+        "last_interaction_tick": 1067
+      },
+      {
+        "agent_a": "elena",
+        "agent_b": "marcus",
+        "agent_a_name": "Elena",
+        "agent_b_name": "Marcus",
+        "affinity": 0.25,
+        "notes": "Shared urgent update about Saw Aria nearby (Arrive at Market and begin at Market: Sudde.",
+        "last_interaction_tick": 1103
+      },
+      {
+        "agent_a": "elena",
+        "agent_b": "maya",
+        "agent_a_name": "Elena",
+        "agent_b_name": "Maya",
+        "affinity": 1.0,
+        "notes": "Shared urgent update about Saw Aria nearby (Arrive at Market and begin at Market: Sudde.",
+        "last_interaction_tick": 1071
+      },
+      {
+        "agent_a": "elena",
+        "agent_b": "noah",
+        "agent_a_name": "Elena",
+        "agent_b_name": "Noah",
+        "affinity": 0.6,
+        "notes": "Shared urgent update about at Market: Sudden fire near the Market spice stalls.",
+        "last_interaction_tick": 1381
+      },
+      {
+        "agent_a": "elena",
+        "agent_b": "sam",
+        "agent_a_name": "Elena",
+        "agent_b_name": "Sam",
+        "affinity": 0.95,
+        "notes": "Shared urgent update about at Market: Sudden fire near the Market spice stalls.",
+        "last_interaction_tick": 968
+      },
+      {
+        "agent_a": "liam",
+        "agent_b": "marcus",
+        "agent_a_name": "Liam",
+        "agent_b_name": "Marcus",
+        "affinity": 1.0,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1168
+      },
+      {
+        "agent_a": "liam",
+        "agent_b": "maya",
+        "agent_a_name": "Liam",
+        "agent_b_name": "Maya",
+        "affinity": 0.6,
+        "notes": "Shared urgent update about Saw Clara nearby (Arrive at Bakery and begin at Bakery: Rumo.",
+        "last_interaction_tick": 1408
+      },
+      {
+        "agent_a": "liam",
+        "agent_b": "noah",
+        "agent_a_name": "Liam",
+        "agent_b_name": "Noah",
+        "affinity": 0.75,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1256
+      },
+      {
+        "agent_a": "liam",
+        "agent_b": "sam",
+        "agent_a_name": "Liam",
+        "agent_b_name": "Sam",
+        "affinity": 0.95,
+        "notes": "Shared urgent update about at Bakery: Rumor spreads that Maya hid rare saffron loaves a.",
+        "last_interaction_tick": 1110
+      },
+      {
+        "agent_a": "marcus",
+        "agent_b": "maya",
+        "agent_a_name": "Marcus",
+        "agent_b_name": "Maya",
+        "affinity": 0.75,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1164
+      },
+      {
+        "agent_a": "marcus",
+        "agent_b": "noah",
+        "agent_a_name": "Marcus",
+        "agent_b_name": "Noah",
+        "affinity": 0.35,
+        "notes": "Shared urgent update about Saw Maya nearby (Arrive at Market and begin at Market: Sudde.",
+        "last_interaction_tick": 1439
+      },
+      {
+        "agent_a": "marcus",
+        "agent_b": "sam",
+        "agent_a_name": "Marcus",
+        "agent_b_name": "Sam",
+        "affinity": -0.3,
+        "notes": "Shared urgent update about at Bakery: Rumor spreads that Maya hid rare saffron loaves a.",
+        "last_interaction_tick": 1092
+      },
+      {
+        "agent_a": "maya",
+        "agent_b": "noah",
+        "agent_a_name": "Maya",
+        "agent_b_name": "Noah",
+        "affinity": -0.15,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1238
+      },
+      {
+        "agent_a": "maya",
+        "agent_b": "sam",
+        "agent_a_name": "Maya",
+        "agent_b_name": "Sam",
+        "affinity": 0.4,
+        "notes": "Shared urgent update about Saw Marcus nearby (Arrive at Bakery and begin at Bakery: Rum.",
+        "last_interaction_tick": 1104
+      },
+      {
+        "agent_a": "noah",
+        "agent_b": "sam",
+        "agent_a_name": "Noah",
+        "agent_b_name": "Sam",
+        "affinity": 1.0,
+        "notes": "Shared urgent update about at Bakery: Rumor spreads that Maya hid rare saffron loaves a.",
+        "last_interaction_tick": 1120
+      }
+    ]
+  },
+  "llm": {
+    "total_calls": 3359,
+    "cache_hits": 182,
+    "cache_hit_rate": 0.0542,
+    "tokens_in": 1423807,
+    "tokens_out": 162203,
+    "total_tokens": 1586010,
+    "cost_est": 0.0,
+    "avg_latency_ms": 0.6463265852932403,
+    "max_latency_ms": 13.1,
+    "daily_budget_usd": 0.5,
+    "daily_token_limit": 250000,
+    "budget_day": 2,
+    "budget_tokens_used": 0,
+    "budget_cost_used": 0.0,
+    "by_purpose": [
+      {
+        "purpose": "importance_batch",
+        "calls": 876,
+        "cache_hits": 182,
+        "tokens_in": 62331,
+        "tokens_out": 2788,
+        "total_tokens": 65119,
+        "cost_est": 0.0,
+        "avg_latency_ms": 0.3073333333333334
+      },
+      {
+        "purpose": "dialogue_turn",
+        "calls": 792,
+        "cache_hits": 0,
+        "tokens_in": 464286,
+        "tokens_out": 28426,
+        "total_tokens": 492712,
+        "cost_est": 0.0,
+        "avg_latency_ms": 0.7265277777777789
+      },
+      {
+        "purpose": "action_decomposition",
+        "calls": 481,
+        "cache_hits": 0,
+        "tokens_in": 265682,
+        "tokens_out": 48739,
+        "total_tokens": 314421,
+        "cost_est": 0.0,
+        "avg_latency_ms": 0.8463409563409564
+      },
+      {
+        "purpose": "replan",
+        "calls": 382,
+        "cache_hits": 0,
+        "tokens_in": 226585,
+        "tokens_out": 32237,
+        "total_tokens": 258822,
+        "cost_est": 0.0,
+        "avg_latency_ms": 0.8727434554973827
+      },
+      {
+        "purpose": "conversation_decide",
+        "calls": 348,
+        "cache_hits": 0,
+        "tokens_in": 182080,
+        "tokens_out": 14220,
+        "total_tokens": 196300,
+        "cost_est": 0.0,
+        "avg_latency_ms": 0.5918247126436786
+      },
+      {
+        "purpose": "conversation_summary",
+        "calls": 274,
+        "cache_hits": 0,
+        "tokens_in": 66537,
+        "tokens_out": 18929,
+        "total_tokens": 85466,
+        "cost_est": 0.0,
+        "avg_latency_ms": 0.49176277372262783
+      },
+      {
+        "purpose": "reflection",
+        "calls": 95,
+        "cache_hits": 0,
+        "tokens_in": 72928,
+        "tokens_out": 6981,
+        "total_tokens": 79909,
+        "cost_est": 0.0,
+        "avg_latency_ms": 1.4999473684210525
+      },
+      {
+        "purpose": "salient_questions",
+        "calls": 95,
+        "cache_hits": 0,
+        "tokens_in": 76768,
+        "tokens_out": 6543,
+        "total_tokens": 83311,
+        "cost_est": 0.0,
+        "avg_latency_ms": 1.036821052631579
+      },
+      {
+        "purpose": "daily_plan",
+        "calls": 16,
+        "cache_hits": 0,
+        "tokens_in": 6610,
+        "tokens_out": 3340,
+        "total_tokens": 9950,
+        "cost_est": 0.0,
+        "avg_latency_ms": 0.263
+      }
+    ],
+    "by_model": [
+      {
+        "model": "mock-flash",
+        "calls": 3359,
+        "cache_hits": 182,
+        "tokens_in": 1423807,
+        "tokens_out": 162203,
+        "total_tokens": 1586010,
+        "cost_est": 0.0,
+        "avg_latency_ms": 0.6463265852932403
+      }
+    ],
+    "sqlite_by_purpose": [
+      {
+        "purpose": "importance_batch",
+        "calls": 876,
+        "cache_hits": 182,
+        "tokens_in": 62331,
+        "tokens_out": 2788,
+        "projected_model": "gemini-2.5-flash",
+        "projected_cost_usd": 0.011022
+      },
+      {
+        "purpose": "dialogue_turn",
+        "calls": 792,
+        "cache_hits": 0,
+        "tokens_in": 464286,
+        "tokens_out": 28426,
+        "projected_model": "gemini-2.5-flash",
+        "projected_cost_usd": 0.086698
+      },
+      {
+        "purpose": "action_decomposition",
+        "calls": 481,
+        "cache_hits": 0,
+        "tokens_in": 265682,
+        "tokens_out": 48739,
+        "projected_model": "gemini-2.5-flash",
+        "projected_cost_usd": 0.069096
+      },
+      {
+        "purpose": "replan",
+        "calls": 382,
+        "cache_hits": 0,
+        "tokens_in": 226585,
+        "tokens_out": 32237,
+        "projected_model": "gemini-2.5-pro",
+        "projected_cost_usd": 0.605601
+      },
+      {
+        "purpose": "conversation_decide",
+        "calls": 348,
+        "cache_hits": 0,
+        "tokens_in": 182080,
+        "tokens_out": 14220,
+        "projected_model": "gemini-2.5-flash",
+        "projected_cost_usd": 0.035844
+      },
+      {
+        "purpose": "conversation_summary",
+        "calls": 274,
+        "cache_hits": 0,
+        "tokens_in": 66537,
+        "tokens_out": 18929,
+        "projected_model": "gemini-2.5-flash",
+        "projected_cost_usd": 0.021338
+      },
+      {
+        "purpose": "reflection",
+        "calls": 95,
+        "cache_hits": 0,
+        "tokens_in": 72928,
+        "tokens_out": 6981,
+        "projected_model": "gemini-2.5-pro",
+        "projected_cost_usd": 0.16097
+      },
+      {
+        "purpose": "salient_questions",
+        "calls": 95,
+        "cache_hits": 0,
+        "tokens_in": 76768,
+        "tokens_out": 6543,
+        "projected_model": "gemini-2.5-pro",
+        "projected_cost_usd": 0.16139
+      },
+      {
+        "purpose": "daily_plan",
+        "calls": 16,
+        "cache_hits": 0,
+        "tokens_in": 6610,
+        "tokens_out": 3340,
+        "projected_model": "gemini-2.5-pro",
+        "projected_cost_usd": 0.041662
+      }
+    ],
+    "db_parity_ok": true,
+    "projected_gemini_cost": {
+      "tiered_flash_pro_usd": 1.193622,
+      "all_flash_usd": 0.310893,
+      "planning_tokens_in": 382891,
+      "planning_tokens_out": 49101,
+      "routine_tokens_in": 1040916,
+      "routine_tokens_out": 113102
+    }
+  },
+  "replay": {
+    "current_day": 2,
+    "days_recorded": [
+      1,
+      2
+    ],
+    "day_summaries": [
+      {
+        "day": 1,
+        "tick_count": 1080,
+        "frame_count": 1427,
+        "first_tick": 0,
+        "last_tick": 1079,
+        "first_sim_time": "Day 1 06:00",
+        "last_sim_time": "Day 1 23:59"
+      },
+      {
+        "day": 2,
+        "tick_count": 361,
+        "frame_count": 435,
+        "first_tick": 1080,
+        "last_tick": 1440,
+        "first_sim_time": "Day 2 00:00",
+        "last_sim_time": "Day 2 06:00"
+      }
+    ],
+    "frame_types_by_day": {
+      "day_1": {
+        "dialogue": 228,
+        "event": 2,
+        "reflection": 117,
+        "tick": 1080
+      },
+      "day_2": {
+        "dialogue": 46,
+        "reflection": 28,
+        "tick": 361
+      }
+    },
+    "tick_bounds_by_day": {
+      "day_1": {
+        "tick_count": 1080,
+        "first_tick": 0,
+        "last_tick": 1079
+      },
+      "day_2": {
+        "tick_count": 361,
+        "first_tick": 1080,
+        "last_tick": 1440
+      }
+    }
+  },
+  "agents_final": [
+    {
+      "id": "aria",
+      "name": "Aria",
+      "role": "Florist",
+      "x": 26,
+      "y": 9,
+      "mood": "concerned",
+      "current_action": "Talking with Elena",
+      "visited_locations_count": 4,
+      "accumulated_importance": 101,
+      "plan_day": 2
+    },
+    {
+      "id": "clara",
+      "name": "Clara",
+      "role": "Archivist",
+      "x": 24,
+      "y": 8,
+      "mood": "concerned",
+      "current_action": "Talking with Maya",
+      "visited_locations_count": 5,
+      "accumulated_importance": 71,
+      "plan_day": 2
+    },
+    {
+      "id": "elena",
+      "name": "Elena",
+      "role": "Botanist",
+      "x": 26,
+      "y": 10,
+      "mood": "concerned",
+      "current_action": "Talking with Aria",
+      "visited_locations_count": 2,
+      "accumulated_importance": 0,
+      "plan_day": 2
+    },
+    {
+      "id": "liam",
+      "name": "Liam",
+      "role": "Barista",
+      "x": 18,
+      "y": 9,
+      "mood": "alert",
+      "current_action": "Walking to Cafe",
+      "visited_locations_count": 4,
+      "accumulated_importance": 120,
+      "plan_day": 2
+    },
+    {
+      "id": "marcus",
+      "name": "Marcus",
+      "role": "Chronicler",
+      "x": 16,
+      "y": 6,
+      "mood": "alert",
+      "current_action": "Talking with Noah",
+      "visited_locations_count": 4,
+      "accumulated_importance": 134,
+      "plan_day": 2
+    },
+    {
+      "id": "maya",
+      "name": "Maya",
+      "role": "Baker",
+      "x": 24,
+      "y": 6,
+      "mood": "alert",
+      "current_action": "Talking with Clara",
+      "visited_locations_count": 3,
+      "accumulated_importance": 51,
+      "plan_day": 2
+    },
+    {
+      "id": "noah",
+      "name": "Noah",
+      "role": "Merchant",
+      "x": 16,
+      "y": 8,
+      "mood": "concerned",
+      "current_action": "Talking with Marcus",
+      "visited_locations_count": 6,
+      "accumulated_importance": 133,
+      "plan_day": 2
+    },
+    {
+      "id": "sam",
+      "name": "Sam",
+      "role": "Apothecary",
+      "x": 5,
+      "y": 15,
+      "mood": "alert",
+      "current_action": "Arrive at Library and begin at Market: Sudden fire near the Market spice stalls): 20:00-22:00 Market (Respond to Elena and Sam discusse...",
+      "visited_locations_count": 6,
+      "accumulated_importance": 61,
+      "plan_day": 2
+    }
+  ]
+}

@@ -375,7 +375,14 @@ def _png_chunk(chunk_type: bytes, data: bytes) -> bytes:
     return struct.pack(">I", len(data)) + chunk_type + data + struct.pack(">I", crc)
 
 
-def write_png(path: Path, width: int, height: int, rgba: bytearray) -> None:
+def write_png(
+    path: Path,
+    width: int,
+    height: int,
+    rgba: bytearray,
+    *,
+    compress_level: int = 6,
+) -> None:
     """Encode an RGBA buffer to an uncompressed-filter PNG using stdlib zlib."""
     stride = width * 4
     raw = bytearray((stride + 1) * height)
@@ -386,7 +393,7 @@ def write_png(path: Path, width: int, height: int, rgba: bytearray) -> None:
         raw[raw_offset + 1 : raw_offset + 1 + stride] = rgba[src_offset : src_offset + stride]
 
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
-    idat = zlib.compress(bytes(raw), level=6)
+    idat = zlib.compress(bytes(raw), level=compress_level)
     png_bytes = (
         b"\x89PNG\r\n\x1a\n"
         + _png_chunk(b"IHDR", ihdr)
@@ -530,7 +537,7 @@ def _build_architecture_html() -> str:
     position: relative;
     width: 1400px;
     height: 820px;
-    padding: 24px 28px;
+    padding: 18px 26px;
     background:
       radial-gradient(circle at 15% 15%, rgba(56, 189, 248, 0.08), transparent 40%),
       radial-gradient(circle at 85% 82%, rgba(168, 85, 247, 0.09), transparent 42%),
@@ -540,13 +547,14 @@ def _build_architecture_html() -> str:
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding-bottom: 14px;
+    gap: 16px;
+    padding-bottom: 10px;
     border-bottom: 1px solid #1e293b;
-    margin-bottom: 18px;
+    margin-bottom: 12px;
   }
   .title { font-size: 24px; font-weight: 800; letter-spacing: -0.02em; color: #f8fafc; }
-  .subtitle { font-size: 13px; color: #94a3b8; margin-top: 3px; }
-  .pill-row { display: flex; gap: 8px; }
+  .subtitle { font-size: 12.5px; color: #94a3b8; margin-top: 3px; }
+  .pill-row { display: flex; gap: 8px; flex-shrink: 0; }
   .pill {
     padding: 5px 11px;
     border-radius: 999px;
@@ -556,26 +564,27 @@ def _build_architecture_html() -> str:
     border: 1px solid #334155;
     background: #111c33;
     color: #cbd5e1;
+    white-space: nowrap;
   }
   .pill.accent { border-color: rgba(56, 189, 248, 0.45); color: #38bdf8; }
   .grid {
     display: grid;
     grid-template-columns: 300px 210px 490px 308px;
     gap: 12px;
-    height: 676px;
+    height: 652px;
     align-items: stretch;
   }
   .tier {
     background: rgba(15, 23, 42, 0.9);
     border: 1px solid #334155;
     border-radius: 12px;
-    padding: 14px;
+    padding: 13px;
     display: flex;
     flex-direction: column;
-    gap: 10px;
+    gap: 9px;
   }
   .tier-browser { border-top: 3px solid #38bdf8; }
-  .tier-proxy { border-top: 3px solid #10b981; justify-content: center; }
+  .tier-proxy { border-top: 3px solid #10b981; }
   .tier-server { border-top: 3px solid #f59e0b; }
   .tier-storage { border-top: 3px solid #a855f7; }
   .tier-title {
@@ -953,18 +962,38 @@ def generate_architecture_png(output_path: Path) -> str:
             raw_png = tmp_dir / "architecture_raw.png"
             html_path.write_text(_build_architecture_html(), encoding="utf-8")
 
+            profile_dir = tmp_dir / "browser_profile"
+            profile_dir.mkdir(parents=True, exist_ok=True)
             cmd = [
                 browser,
                 "--headless=new",
                 "--disable-gpu",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--disable-extensions",
+                f"--user-data-dir={profile_dir}",
                 "--force-device-scale-factor=1",
                 "--hide-scrollbars",
                 f"--window-size={ARCH_WIDTH},{ARCH_HEIGHT}",
                 f"--screenshot={raw_png}",
                 html_path.as_uri(),
             ]
-            proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-            if proc.returncode == 0 and raw_png.is_file() and raw_png.stat().st_size > 10_000:
+            try:
+                proc = subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                    timeout=25,
+                )
+            except subprocess.TimeoutExpired:
+                proc = None
+            if (
+                proc is not None
+                and proc.returncode == 0
+                and raw_png.is_file()
+                and raw_png.stat().st_size > 10_000
+            ):
                 shutil.copyfile(raw_png, output_path)
                 return f"headless:{Path(browser).name}"
 
@@ -1175,7 +1204,7 @@ def _draw_feed_cards(canvas: RasterCanvas, cards: Sequence[FeedCard]) -> None:
     card_x = FEED_X0 + 8
 
     for card in cards[:5]:
-        body_lines = wrap_text(card.body, max_chars=38)[:2]
+        body_lines = wrap_text(card.body, max_chars=38)[:3]
         subject_lines = wrap_text(card.subject, max_chars=38)[:1] if card.subject else []
         card_h = 26 + len(subject_lines) * 11 + len(body_lines) * 10 + 6
         if cursor_y + card_h > FEED_Y0 + FEED_H - 6:
@@ -1462,7 +1491,7 @@ def generate_demo_gif(
                     )
                 bw = measure_text_width(active_event_banner) + 12
                 bx = max(MAP_X0 + 4, min(MAP_X0 + map_w * DEMO_TILE_PX - bw - 4, px - bw // 2))
-                by = max(MAP_Y0 + 6, py - 26)
+                by = min(MAP_Y0 + map_h * DEMO_TILE_PX - 20, py + 24)
                 frame_canvas.fill_rect(bx, by, bw, 15, (120, 53, 15, 235))
                 frame_canvas.stroke_rect(bx, by, bw, 15, (251, 191, 36, 255), thickness=1)
                 frame_canvas.draw_text(bx + 6, by + 4, active_event_banner, (254, 243, 199, 255))
@@ -1485,7 +1514,13 @@ def generate_demo_gif(
             frame_canvas.draw_text(24, 590, god_mode_prompt[:112], (254, 243, 199, 255), scale=1)
 
             frame_path = frame_dir / f"frame_{rendered_count:04d}.png"
-            write_png(frame_path, DEMO_WIDTH, DEMO_HEIGHT, frame_canvas.data)
+            write_png(
+                frame_path,
+                DEMO_WIDTH,
+                DEMO_HEIGHT,
+                frame_canvas.data,
+                compress_level=1,
+            )
             rendered_count += 1
 
         if rendered_count < 10:

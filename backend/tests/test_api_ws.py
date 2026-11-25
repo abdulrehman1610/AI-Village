@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 
 from app.config import Settings
 from app.main import create_app
+from sim.engine import SimulationEngine
 
 EXPECTED_LOCATION_NAMES = {
     "Cafe",
@@ -33,6 +34,7 @@ def test_rest_endpoints_and_initial_websocket_snapshot(tmp_path: Path) -> None:
             sim_auto_start=False,
             sim_tick_seconds=0.05,
             database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+            replay_log_dir=str(tmp_path / "logs"),
         )
     )
 
@@ -93,6 +95,7 @@ def test_websocket_streams_advancing_ticks_and_moving_agents(tmp_path: Path) -> 
             sim_auto_start=True,
             sim_tick_seconds=0.05,
             database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+            replay_log_dir=str(tmp_path / "logs"),
         )
     )
 
@@ -107,7 +110,7 @@ def test_websocket_streams_advancing_ticks_and_moving_agents(tmp_path: Path) -> 
             for _ in range(25):
                 frame = ws.receive_json()
                 frame_type = frame.get("type")
-                assert frame_type in {"tick", "dialogue", "event", "reflection"}
+                assert frame_type in {"tick", "dialogue", "event", "reflection", "metrics"}
                 if frame_type == "tick":
                     ticks.append(frame)
                     if len(ticks) == 2:
@@ -139,6 +142,7 @@ def test_sim_control_agent_detail_and_relationships_endpoints(tmp_path: Path) ->
             sim_auto_start=False,
             sim_tick_seconds=0.05,
             database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+            replay_log_dir=str(tmp_path / "logs"),
         )
     )
 
@@ -233,3 +237,179 @@ def test_sim_control_agent_detail_and_relationships_endpoints(tmp_path: Path) ->
         for node in rel_data["nodes"]:
             assert {"id", "name", "role", "mood"} <= set(node.keys())
         assert isinstance(rel_data["edges"], list)
+
+
+def test_metrics_and_replay_endpoints_and_ws_metrics(tmp_path: Path) -> None:
+    db_path = tmp_path / "test_api_metrics_replay.db"
+    replay_dir = tmp_path / "logs"
+    app = create_app(
+        Settings(
+            sim_auto_start=False,
+            sim_tick_seconds=0.05,
+            database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+            replay_log_dir=str(replay_dir),
+        )
+    )
+
+    with TestClient(app) as client:
+        assert app.state.replay_logger is not None
+        assert client.portal is not None
+
+        initial_metrics_resp = client.get("/metrics")
+        assert initial_metrics_resp.status_code == 200
+        initial_metrics = initial_metrics_resp.json()
+        assert {
+            "tick",
+            "sim_time",
+            "day",
+            "total_calls",
+            "cache_hits",
+            "cache_hit_rate",
+            "tokens_in",
+            "tokens_out",
+            "total_tokens",
+            "cost_est",
+            "avg_latency_ms",
+            "max_latency_ms",
+            "daily_budget_usd",
+            "daily_token_limit",
+            "budget_day",
+            "budget_tokens_used",
+            "budget_cost_used",
+            "by_purpose",
+            "by_model",
+            "history",
+        } <= set(initial_metrics.keys())
+        assert initial_metrics["tick"] == 0
+        assert initial_metrics["day"] == 1
+        assert initial_metrics["sim_time"] == "Day 1 06:00"
+        assert initial_metrics["total_calls"] == 0
+        assert initial_metrics["by_purpose"] == []
+        assert initial_metrics["by_model"] == []
+        assert initial_metrics["history"] == []
+
+        initial_replay_resp = client.get("/replay")
+        assert initial_replay_resp.status_code == 200
+        initial_replay = initial_replay_resp.json()
+        assert initial_replay["current_day"] == 1
+        assert len(initial_replay["days"]) == 1
+        day1_summary = initial_replay["days"][0]
+        assert day1_summary["day"] == 1
+        assert day1_summary["tick_count"] == 1
+        assert day1_summary["first_tick"] == 0
+        assert day1_summary["last_tick"] == 0
+
+        day1_log_resp = client.get("/replay/1")
+        assert day1_log_resp.status_code == 200
+        day1_log = day1_log_resp.json()
+        assert day1_log["day"] == 1
+        assert day1_log["tick_count"] == 1
+        assert day1_log["first_tick"] == 0
+        assert day1_log["last_tick"] == 0
+        assert len(day1_log["frames"]) == 1
+        assert day1_log["frames"][0]["type"] == "tick"
+        assert day1_log["frames"][0]["tick"] == 0
+
+        assert client.get("/replay/99").status_code == 404
+        assert client.get("/replay/0").status_code == 422
+
+        # Playback controls must not append duplicate tick-0 snapshots into replay logs.
+        assert client.post("/sim/speed", json={"speed": 4}).status_code == 200
+        assert client.get("/replay/1").json()["tick_count"] == 1
+
+        engine: SimulationEngine = app.state.engine
+
+        with client.websocket_connect("/ws") as ws:
+            initial_ws = ws.receive_json()
+            assert initial_ws["type"] == "tick"
+            assert initial_ws["tick"] == 0
+
+            step1 = client.portal.call(engine.step_once)
+            assert step1.tick == 1
+            step2 = client.portal.call(engine.step_once)
+            assert step2.tick == 2
+
+            event_resp = client.post(
+                "/events",
+                json={"text": "Town bell rang at dawn", "location": "Town Square"},
+            )
+            assert event_resp.status_code == 200
+            event_data = event_resp.json()
+            event_id = event_data["id"]
+
+            ws_frames: list[dict[str, Any]] = []
+            seen_event = False
+            for _ in range(80):
+                frame = ws.receive_json()
+                frame_type = frame.get("type")
+                assert frame_type in {"tick", "dialogue", "event", "reflection", "metrics"}
+                ws_frames.append(frame)
+                if frame_type == "event" and frame.get("id") == event_id:
+                    seen_event = True
+                    break
+
+            assert seen_event is True
+            ws_ticks = [f["tick"] for f in ws_frames if f.get("type") == "tick"]
+            assert ws_ticks == [1, 2]
+
+            ws_metrics_frames = [f for f in ws_frames if f.get("type") == "metrics"]
+            assert len(ws_metrics_frames) >= 1
+            latest_ws_metrics = ws_metrics_frames[-1]
+            assert latest_ws_metrics["total_calls"] > 0
+            assert latest_ws_metrics["tokens_in"] > 0
+            assert latest_ws_metrics["tokens_out"] > 0
+            assert (
+                latest_ws_metrics["total_tokens"]
+                == latest_ws_metrics["tokens_in"] + latest_ws_metrics["tokens_out"]
+            )
+            assert len(latest_ws_metrics["by_purpose"]) >= 1
+            assert len(latest_ws_metrics["by_model"]) >= 1
+            assert len(latest_ws_metrics["history"]) >= 1
+
+        final_metrics_resp = client.get("/metrics")
+        assert final_metrics_resp.status_code == 200
+        final_metrics = final_metrics_resp.json()
+        assert final_metrics["tick"] == 2
+        assert final_metrics["day"] == 1
+
+        with closing(sqlite3.connect(str(db_path))) as conn:
+            row = conn.execute(
+                "SELECT COUNT(*), COALESCE(SUM(tokens_in), 0), COALESCE(SUM(tokens_out), 0) "
+                "FROM llm_calls"
+            ).fetchone()
+            db_calls, db_tokens_in, db_tokens_out = int(row[0]), int(row[1]), int(row[2])
+
+        assert final_metrics["total_calls"] == db_calls
+        assert final_metrics["tokens_in"] == db_tokens_in
+        assert final_metrics["tokens_out"] == db_tokens_out
+        assert final_metrics["total_tokens"] == db_tokens_in + db_tokens_out
+
+        final_replay_resp = client.get("/replay")
+        assert final_replay_resp.status_code == 200
+        final_replay = final_replay_resp.json()
+        assert final_replay["current_day"] == 1
+        assert len(final_replay["days"]) == 1
+        assert final_replay["days"][0]["tick_count"] == 3
+        assert final_replay["days"][0]["first_tick"] == 0
+        assert final_replay["days"][0]["last_tick"] == 2
+
+        final_day1_resp = client.get("/replay/1")
+        assert final_day1_resp.status_code == 200
+        final_day1 = final_day1_resp.json()
+        assert final_day1["tick_count"] == 3
+        assert final_day1["first_tick"] == 0
+        assert final_day1["last_tick"] == 2
+
+        frames = final_day1["frames"]
+        assert all(
+            f.get("type") in {"tick", "dialogue", "event", "reflection"} for f in frames
+        )
+        assert [f["tick"] for f in frames if f.get("type") == "tick"] == [0, 1, 2]
+        frame_ticks = [f["tick"] for f in frames]
+        assert frame_ticks == sorted(frame_ticks)
+        assert any(
+            f.get("type") == "event"
+            and f.get("id") == event_id
+            and f.get("text") == "Town bell rang at dawn"
+            for f in frames
+        )

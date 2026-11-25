@@ -45,6 +45,7 @@ def test_threshold_150_reflection_cites_memories_and_emits_ws(tmp_path: Path) ->
             sim_auto_start=False,
             sim_tick_seconds=0.05,
             database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+            replay_log_dir=str(tmp_path / "logs"),
         )
     )
 
@@ -107,7 +108,7 @@ def test_threshold_150_reflection_cites_memories_and_emits_ws(tmp_path: Path) ->
                     break
                 frame = ws.receive_json()
                 frame_type = frame.get("type")
-                assert frame_type in {"tick", "dialogue", "event", "reflection"}
+                assert frame_type in {"tick", "dialogue", "event", "reflection", "metrics"}
                 if frame_type == "tick" and frame.get("tick") == 1:
                     tick1_seen = True
                 elif frame_type == "reflection" and frame.get("agent_id") == "maya":
@@ -158,6 +159,7 @@ def test_conversation_relationship_and_mood_exposed_by_rest_apis(tmp_path: Path)
             sim_auto_start=False,
             sim_tick_seconds=0.05,
             database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+            replay_log_dir=str(tmp_path / "logs"),
         )
     )
 
@@ -249,6 +251,7 @@ def test_time_controls_rest_and_ws_live_sync(tmp_path: Path) -> None:
             sim_auto_start=True,
             sim_tick_seconds=0.4,
             database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+            replay_log_dir=str(tmp_path / "logs"),
         )
     )
 
@@ -265,7 +268,7 @@ def test_time_controls_rest_and_ws_live_sync(tmp_path: Path) -> None:
             paused_ws_tick: dict[str, Any] | None = None
             for _ in range(25):
                 frame = ws.receive_json()
-                assert frame.get("type") in {"tick", "dialogue", "event", "reflection"}
+                assert frame.get("type") in {"tick", "dialogue", "event", "reflection", "metrics"}
                 if frame.get("type") == "tick" and frame.get("running") is False:
                     paused_ws_tick = frame
                     break
@@ -279,7 +282,7 @@ def test_time_controls_rest_and_ws_live_sync(tmp_path: Path) -> None:
             speed_ws_tick: dict[str, Any] | None = None
             for _ in range(25):
                 frame = ws.receive_json()
-                assert frame.get("type") in {"tick", "dialogue", "event", "reflection"}
+                assert frame.get("type") in {"tick", "dialogue", "event", "reflection", "metrics"}
                 if (
                     frame.get("type") == "tick"
                     and frame.get("speed") == 16
@@ -300,7 +303,7 @@ def test_time_controls_rest_and_ws_live_sync(tmp_path: Path) -> None:
             advancing_ticks: list[int] = []
             for _ in range(40):
                 frame = ws.receive_json()
-                assert frame.get("type") in {"tick", "dialogue", "event", "reflection"}
+                assert frame.get("type") in {"tick", "dialogue", "event", "reflection", "metrics"}
                 if (
                     frame.get("type") == "tick"
                     and frame.get("running") is True

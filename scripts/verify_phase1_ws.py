@@ -127,7 +127,7 @@ async def verify_live_server(proc: subprocess.Popen[bytes]) -> tuple[list[int], 
             if not isinstance(payload, dict):
                 raise AssertionError(f"Unexpected /ws message payload: {payload!r}")
             msg_type = payload.get("type")
-            if msg_type in {"dialogue", "event", "reflection"}:
+            if msg_type in {"dialogue", "event", "reflection", "metrics"}:
                 continue
             if msg_type != "tick":
                 raise AssertionError(f"Unexpected /ws message payload: {payload!r}")
@@ -202,6 +202,7 @@ def main() -> int:
         env = os.environ.copy()
         env["SIM_TICK_SECONDS"] = "0.1"
         env["DATABASE_URL"] = f"sqlite+aiosqlite:///{db_path.as_posix()}"
+        env["REPLAY_LOG_DIR"] = str(Path(tmp_dir) / "logs")
 
         proc = subprocess.Popen(
             [

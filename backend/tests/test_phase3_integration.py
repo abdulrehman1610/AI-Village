@@ -169,6 +169,7 @@ def test_post_events_global_radius_and_validation(tmp_path: Path) -> None:
             sim_auto_start=False,
             sim_tick_seconds=0.05,
             database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+            replay_log_dir=str(tmp_path / "logs"),
         )
     )
 

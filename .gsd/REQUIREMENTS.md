@@ -30,7 +30,7 @@ Formal requirements derived from `.gsd/SPEC.md` and `AI Village Product Requirem
 | REQ-13 | **Event Log & Day Replay (F13)**: Write structured simulation events to a JSONL event log per simulated day, expose `GET /replay/{day}`, and provide a frontend replay mode to scrub/rewatch a recorded day. | SPEC F13 | 5 | Complete |
 | REQ-14 | **Cost & Token Dashboard (F14)**: Expose `GET /metrics` and WS `metrics` payloads aggregating calls, tokens in/out, latency, cache hits, and estimated cost from `llm_calls`, rendered via Chart.js in the frontend. | SPEC F14 | 5 | Complete |
 | REQ-15 | **Schema-Enforced LLM Gateway**: Route all LLM calls through `backend/llm/gateway.py` with Pydantic v2 JSON validation, 1-retry repair, prompt caching, batched importance rating, hard budget enforcement, Gemini Flash provider, and deterministic mock provider. | SPEC Goal 4 | 2 | Complete |
-| REQ-16 | **Packaging, CI & Academic Deliverables**: Provide `docker-compose.yml`, GitHub Actions CI (`ruff`, `mypy`, `pytest`), `README.md` (<5 commands setup + architecture diagram), `AGENTS.md`, and `docs/report.md` (AI Lab Report). | SPEC Goal 3 | 5, 6 | In Progress |
+| REQ-16 | **Packaging, CI & Academic Deliverables**: Provide `docker-compose.yml`, GitHub Actions CI (`ruff`, `mypy`, `pytest`), `README.md` (<5 commands setup + architecture diagram), `AGENTS.md`, and `docs/report.md` (AI Lab Report). | SPEC Goal 3 | 5, 6 | Complete |
 
 ---
 
@@ -77,4 +77,4 @@ Formal requirements derived from `.gsd/SPEC.md` and `AI Village Product Requirem
 | REQ-13 | 5 | 5.1, 5.2, 5.3, 5.5, 5.6, 5.7 | test_replay_logger.py, test_phase5_api.py, test_100_ticks_invariants.py | Complete |
 | REQ-14 | 5 | 5.1, 5.2, 5.3, 5.4, 5.6, 5.7 | test_metrics_snapshot.py, test_phase5_api.py, test_100_ticks_invariants.py | Complete |
 | REQ-15 | 2 | 2.2, 2.5 | test_llm_gateway.py, test_phase2_integration.py | Complete |
-| REQ-16 | 5, 6 | 5.7 | test_100_ticks_invariants.py, ci.yml | In Progress |
+| REQ-16 | 5, 6 | 5.7, 6.1, 6.2, 6.3 | test_100_ticks_invariants.py, test_docker_packaging.py, test_full_day_simulation.py, ci.yml | Complete |

@@ -35,15 +35,15 @@ AI Village is a 2D browser-based town simulation where 6 to 10 autonomous LLM-dr
 - **Code Quality & Security**: Strictly typed Python (`mypy`) formatted/linted with `ruff`. No secrets in code (`.env` ignored, `.env.example` committed).
 
 ## Success Criteria
-- [ ] Tile-based village map renders in Phaser 3 with named locations (e.g., Cafe, Park, Market, Homes) and collision walls.
-- [ ] Custom hand-written A* pathfinder (`heapq`, Manhattan heuristic, 4-way movement) navigates agents between named locations without walking through walls or overlapping tiles.
-- [ ] 6–10 distinct agent personas wake up, generate hierarchical plans (day → hourly → minute actions), and execute the Perceive → Remember → Decide → Act → Reflect loop across a full simulated day.
-- [ ] Memory stream stores observations, plans, conversations, and reflections with embeddings (`sentence-transformers` `all-MiniLM-L6-v2` in production, deterministic embedding in mock mode) and retrieves top-$k$ ($k=8$) memories using normalized `w_r * recency + w_i * importance + w_v * relevance`.
-- [ ] Agents within 2 tiles initiate cooldown-gated turn-by-turn dialogues (up to 6 turns), summarize the conversation into memory, and update pairwise relationship affinity and notes.
-- [ ] Viewer can inject god-mode events (`POST /events`) with optional location, delivering observations to nearby agents that propagate via subsequent conversations.
-- [ ] When accumulated memory importance exceeds threshold (150), agents generate cited higher-level reflections stored back into the memory stream.
-- [ ] Frontend provides an Agent Inspector panel (plan, memories, mood, relationships), Time Controls (pause, play, 1x/4x/16x), a Cytoscape.js Relationship Graph, a Chart.js Cost/Token/Latency Dashboard, and JSONL Day Replay.
-- [ ] 100-tick integration test with deterministic mock LLM passes with zero crashes, valid state invariants, and passing `ruff` + `mypy` checks in CI.
+- [x] Tile-based village map renders in Phaser 3 with named locations (e.g., Cafe, Park, Market, Homes) and collision walls.
+- [x] Custom hand-written A* pathfinder (`heapq`, Manhattan heuristic, 4-way movement) navigates agents between named locations without walking through walls or overlapping tiles.
+- [x] 6–10 distinct agent personas wake up, generate hierarchical plans (day → hourly → minute actions), and execute the Perceive → Remember → Decide → Act → Reflect loop across a full simulated day.
+- [x] Memory stream stores observations, plans, conversations, and reflections with embeddings (`sentence-transformers` `all-MiniLM-L6-v2` in production, deterministic embedding in mock mode) and retrieves top-$k$ ($k=8$) memories using normalized `w_r * recency + w_i * importance + w_v * relevance`.
+- [x] Agents within 2 tiles initiate cooldown-gated turn-by-turn dialogues (up to 6 turns), summarize the conversation into memory, and update pairwise relationship affinity and notes.
+- [x] Viewer can inject god-mode events (`POST /events`) with optional location, delivering observations to nearby agents that propagate via subsequent conversations.
+- [x] When accumulated memory importance exceeds threshold (150), agents generate cited higher-level reflections stored back into the memory stream.
+- [x] Frontend provides an Agent Inspector panel (plan, memories, mood, relationships), Time Controls (pause, play, 1x/4x/16x), a Cytoscape.js Relationship Graph, a Chart.js Cost/Token/Latency Dashboard, and JSONL Day Replay.
+- [x] 100-tick integration test with deterministic mock LLM passes with zero crashes, valid state invariants, and passing `ruff` + `mypy` checks in CI.
 
 ## Technical Requirements (v1.0 Scope: P0 + P1)
 

@@ -3,14 +3,17 @@
 from __future__ import annotations
 
 import json
-from typing import Literal, cast
+from typing import Annotated, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi import Path as FastAPIPath
 from pydantic import BaseModel, Field, field_validator
 
+from llm.gateway import LLMGateway, MetricsSnapshot
 from memory.models import MemoryRecord
 from memory.store import MemoryStore
 from sim.engine import AgentEntity, AgentSnapshot, SimulationEngine, TickPayload
+from sim.replay import ReplayDayLog, ReplayDaySummary, ReplayLogger
 from sim.world import NamedLocation, WorldMap
 
 router = APIRouter()
@@ -197,6 +200,13 @@ class RelationshipsResponse(BaseModel):
     edges: list[RelationshipEdgeDTO]
 
 
+class ReplayDaysResponse(BaseModel):
+    """Available simulation replay days and current authoritative day."""
+
+    current_day: int
+    days: list[ReplayDaySummary]
+
+
 def _get_engine(request: Request) -> SimulationEngine:
     return cast(SimulationEngine, request.app.state.engine)
 
@@ -207,6 +217,14 @@ def _get_world(request: Request) -> WorldMap:
 
 def _get_memory_store(request: Request) -> MemoryStore | None:
     return cast(MemoryStore | None, getattr(request.app.state, "memory_store", None))
+
+
+def _get_llm_gateway(request: Request) -> LLMGateway | None:
+    return cast(LLMGateway | None, getattr(request.app.state, "llm_gateway", None))
+
+
+def _get_replay_logger(request: Request) -> ReplayLogger | None:
+    return cast(ReplayLogger | None, getattr(request.app.state, "replay_logger", None))
 
 
 def _to_sim_control_response(payload: TickPayload) -> SimControlResponse:
@@ -575,3 +593,63 @@ async def post_event(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     return InjectEventResponse(**result)
+
+
+@router.get("/metrics", response_model=MetricsSnapshot)
+async def get_metrics(request: Request) -> MetricsSnapshot:
+    """Return aggregated LLM call telemetry, budget usage, and rolling per-tick history."""
+    engine = _get_engine(request)
+    gateway = _get_llm_gateway(request)
+    if gateway is not None:
+        return await gateway.get_metrics_snapshot(
+            tick=engine.clock.tick,
+            sim_time=engine.clock.sim_time_str,
+            day=engine.clock.day,
+        )
+    return MetricsSnapshot(
+        tick=engine.clock.tick,
+        sim_time=engine.clock.sim_time_str,
+        day=engine.clock.day,
+        total_calls=0,
+        cache_hits=0,
+        cache_hit_rate=0.0,
+        tokens_in=0,
+        tokens_out=0,
+        total_tokens=0,
+        cost_est=0.0,
+        avg_latency_ms=0.0,
+        max_latency_ms=0.0,
+        daily_budget_usd=0.0,
+        daily_token_limit=0,
+        budget_day=1,
+        budget_tokens_used=0,
+        budget_cost_used=0.0,
+        by_purpose=[],
+        by_model=[],
+        history=[],
+    )
+
+
+@router.get("/replay", response_model=ReplayDaysResponse)
+async def get_replay_days(request: Request) -> ReplayDaysResponse:
+    """List recorded simulation replay days with tick bounds."""
+    engine = _get_engine(request)
+    replay_logger = _get_replay_logger(request)
+    days = await replay_logger.list_days() if replay_logger is not None else []
+    return ReplayDaysResponse(current_day=engine.clock.day, days=days)
+
+
+@router.get("/replay/{day}", response_model=ReplayDayLog)
+async def get_replay_day(
+    day: Annotated[int, FastAPIPath(ge=1)],
+    request: Request,
+) -> ReplayDayLog:
+    """Return parsed JSONL replay frames for a 1-indexed simulated day."""
+    replay_logger = _get_replay_logger(request)
+    day_log = await replay_logger.read_day(day) if replay_logger is not None else None
+    if day_log is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Replay log for day {day} not found.",
+        )
+    return day_log

@@ -94,6 +94,15 @@ updated: 2026-11-23T23:39:00+05:00
 **Depends on:** Phase 4
 **Requirements:** REQ-10 (graph UI), REQ-13, REQ-14, REQ-16 (CI), NFR-03, NFR-04, NFR-05
 
+**Plans:**
+- [ ] Plan 5.1: Add Settings.replay_log_dir, non-blocking ReplayLogger, and LLMGateway.get_metrics_snapshot() with unit tests (Wave 1)
+- [ ] Plan 5.2: Install chart.js/cytoscape/@types/cytoscape, add Vite /metrics+/replay proxies, strict TS guards, apiClient & wsClient hooks (Wave 1)
+- [ ] Plan 5.3: Wire ReplayLogger & WS metrics broadcasts into SimulationEngine/main.py, expose /metrics+/replay/{day}, update WS allowlists (Wave 2)
+- [ ] Plan 5.4: Build Cytoscape.js RelationshipGraphModal and live Chart.js MetricsDashboardPanel components (Wave 2)
+- [ ] Plan 5.5: Add VillageScene reset/immediate-snap hooks, ActivityFeed.clear(), and client-side ReplayController scrubber (Wave 2)
+- [ ] Plan 5.6: Integrate HUD tool toggles, drawer panels, Replay bar, and live/replay lastLiveTick gating in index.html/style.css/main.ts (Wave 3)
+- [ ] Plan 5.7: Author 100-tick invariant & determinism suite, .github/workflows/ci.yml, and run full local verification gate (Wave 4)
+
 ---
 
 ### Phase 6: Packaging, Documentation, Lab Report & Demo Readiness
@@ -112,7 +121,7 @@ updated: 2026-11-23T23:39:00+05:00
 | 2 | ✅ | 5/5 | 100% |
 | 3 | ✅ | 8/8 | 100% |
 | 4 | ✅ | 7/7 | 100% |
-| 5 | 🔄 | 0/TBD | — |
+| 5 | 🔄 | 0/7 | — |
 | 6 | ⬜ | 0/TBD | — |
 
 ---

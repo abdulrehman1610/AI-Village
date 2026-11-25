@@ -22,6 +22,7 @@ from memory.retrieval import MemoryRetriever
 from memory.store import MemoryStore
 from sim.clock import SimClock
 from sim.engine import SimulationEngine, TickPayload
+from sim.replay import ReplayLogger
 from sim.world import WorldMap
 
 
@@ -80,6 +81,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 running=resolved_settings.sim_auto_start,
                 base_tick_seconds=resolved_settings.sim_tick_seconds,
             )
+            replay_logger = ReplayLogger(
+                resolved_settings.resolved_replay_log_dir(),
+                start_minute_of_day=clock.start_minute_of_day,
+            )
             engine = SimulationEngine(
                 world=world,
                 clock=clock,
@@ -87,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 memory_store=memory_store,
                 retriever=memory_retriever,
                 llm_gateway=llm_gateway,
+                replay_logger=replay_logger,
                 reflection_threshold=resolved_settings.reflection_threshold,
             )
             await engine.initialize_persistence()
@@ -110,6 +116,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             app.state.world = world
             app.state.clock = clock
             app.state.engine = engine
+            app.state.replay_logger = replay_logger
             app.state.ws_manager = ws_manager
 
             if resolved_settings.sim_auto_start:

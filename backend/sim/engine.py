@@ -21,6 +21,7 @@ from memory.retrieval import MemoryRetriever
 from memory.store import MemoryCreate, MemoryStore
 from sim.astar import find_path
 from sim.clock import SimClock
+from sim.replay import ReplayLogger
 from sim.world import GridPos, WorldMap
 
 logger = logging.getLogger(__name__)
@@ -173,6 +174,7 @@ class SimulationEngine:
         memory_store: MemoryStore | None = None,
         retriever: MemoryRetriever | None = None,
         llm_gateway: LLMGateway | None = None,
+        replay_logger: ReplayLogger | None = None,
         reflection_threshold: int = 150,
     ) -> None:
         if isinstance(dwell_ticks, bool) or dwell_ticks < 0:
@@ -191,6 +193,7 @@ class SimulationEngine:
         self.memory_store = memory_store
         self.retriever = retriever
         self.llm_gateway = llm_gateway
+        self.replay_logger = replay_logger
         self.planner = DailyPlanner()
         self.brains: dict[str, AgentBrain] = {
             agent_id: AgentBrain(
@@ -235,55 +238,59 @@ class SimulationEngine:
 
     async def initialize_persistence(self) -> None:
         """Upsert agents, seed initial persona memories idempotently, and ensure sim_state."""
-        if self.memory_store is None:
-            return
-
-        seed_items: list[MemoryCreate] = []
-        for agent in self.agents.values():
-            await self.memory_store.upsert_agent(
-                AgentRecord(
-                    id=agent.id,
-                    name=agent.name,
-                    persona_json=agent.persona.to_persona_json(),
-                    home_location=agent.home_location,
-                    x=agent.x,
-                    y=agent.y,
-                    current_action=agent.current_action,
-                    current_plan_json=self.get_serialized_plan_json(agent.id),
-                    mood=agent.mood,
-                )
-            )
-            existing = await self.memory_store.list_memories(agent.id, limit=1)
-            if not existing:
-                seed_items.append(
-                    MemoryCreate(
-                        agent_id=agent.id,
-                        memory_type="observation",
-                        text=agent.persona.summary_text(),
-                        importance=6,
-                        created_tick=self.clock.tick,
+        if self.memory_store is not None:
+            seed_items: list[MemoryCreate] = []
+            for agent in self.agents.values():
+                await self.memory_store.upsert_agent(
+                    AgentRecord(
+                        id=agent.id,
+                        name=agent.name,
+                        persona_json=agent.persona.to_persona_json(),
+                        home_location=agent.home_location,
+                        x=agent.x,
+                        y=agent.y,
+                        current_action=agent.current_action,
+                        current_plan_json=self.get_serialized_plan_json(agent.id),
+                        mood=agent.mood,
                     )
                 )
-                for goal in agent.persona.starting_goals:
+                existing = await self.memory_store.list_memories(agent.id, limit=1)
+                if not existing:
                     seed_items.append(
                         MemoryCreate(
                             agent_id=agent.id,
                             memory_type="observation",
-                            text=f"{agent.name}'s goal: {goal}",
+                            text=agent.persona.summary_text(),
                             importance=6,
                             created_tick=self.clock.tick,
                         )
                     )
+                    for goal in agent.persona.starting_goals:
+                        seed_items.append(
+                            MemoryCreate(
+                                agent_id=agent.id,
+                                memory_type="observation",
+                                text=f"{agent.name}'s goal: {goal}",
+                                importance=6,
+                                created_tick=self.clock.tick,
+                            )
+                        )
 
-        if seed_items:
-            await self.memory_store.add_memories_batch(seed_items)
+            if seed_items:
+                await self.memory_store.add_memories_batch(seed_items)
 
-        await self.memory_store.get_or_create_sim_state(
-            tick=self.clock.tick,
-            sim_time=self.clock.sim_time_str,
-            speed=self.clock.speed,
-            seed=self.seed,
-        )
+            await self.memory_store.get_or_create_sim_state(
+                tick=self.clock.tick,
+                sim_time=self.clock.sim_time_str,
+                speed=self.clock.speed,
+                seed=self.seed,
+            )
+
+        if self.replay_logger is not None and self.clock.tick == 0:
+            await self.replay_logger.ensure_initial_tick(
+                self._build_live_tick_payload().model_dump(),
+                start_minute_of_day=self.clock.start_minute_of_day,
+            )
 
     async def _persist_clock_state(self) -> None:
         """Persist current simulation clock metadata when a MemoryStore is attached."""
@@ -839,15 +846,26 @@ class SimulationEngine:
             "affected_agents": affected_agents,
         }
         await self._emit_event_payload(event_payload)
+        if self.replay_logger is not None:
+            await self.replay_logger.log_frame(
+                event_payload,
+                start_minute_of_day=self.clock.start_minute_of_day,
+            )
         return event_payload
 
     async def step_once(self) -> TickPayload:
         """Advance simulation state by one tick and notify registered async callbacks."""
         pending_event_payloads: list[dict[str, Any]] = []
+        calls_before = 0
         async with self._step_lock:
             self._pre_step_payload = self._build_live_tick_payload()
             self._stepping = True
             try:
+                calls_before = (
+                    self.llm_gateway.total_recorded_calls
+                    if self.llm_gateway is not None
+                    else 0
+                )
                 if self.llm_gateway is not None:
                     pending_event_payloads = await self._run_cognitive_phase(
                         self.llm_gateway
@@ -868,10 +886,30 @@ class SimulationEngine:
                 self._stepping = False
                 self._pre_step_payload = None
 
+        tick_dict = payload.model_dump()
+        if self.replay_logger is not None:
+            await self.replay_logger.log_frames(
+                [*pending_event_payloads, tick_dict],
+                start_minute_of_day=self.clock.start_minute_of_day,
+            )
+
         await self._broadcast_tick_payload(payload)
 
         for event_payload in pending_event_payloads:
             await self._emit_event_payload(event_payload)
+
+        if (
+            self.llm_gateway is not None
+            and self.llm_gateway.total_recorded_calls > calls_before
+        ):
+            metrics_snapshot = await self.llm_gateway.get_metrics_snapshot(
+                tick=payload.tick,
+                sim_time=payload.sim_time,
+                day=payload.day,
+            )
+            await self._emit_event_payload(
+                {"type": "metrics", **metrics_snapshot.model_dump()}
+            )
 
         return payload
 

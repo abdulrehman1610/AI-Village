@@ -9,6 +9,9 @@ import type {
 import { ActivityFeed } from "./ui/activityFeed";
 import { AgentInspector } from "./ui/agentInspector";
 import { mountEventInjector } from "./ui/eventInjector";
+import { MetricsDashboardPanel } from "./ui/metricsDashboard";
+import { RelationshipGraphModal } from "./ui/relationshipGraph";
+import { ReplayController } from "./ui/replayControls";
 import { TimeControls } from "./ui/timeControls";
 
 interface CachedAgentChip {
@@ -22,8 +25,16 @@ const simTimeEl = document.getElementById("sim-time");
 const simTickEl = document.getElementById("sim-tick");
 const timeControlsEl = document.getElementById("time-controls");
 const agentsBarEl = document.getElementById("agents-bar");
+const stageEl = document.getElementById("stage");
 const agentInspectorEl = document.getElementById("agent-inspector");
 const activityFeedEl = document.getElementById("activity-feed");
+const relationshipPanelEl = document.getElementById("relationship-panel");
+const metricsPanelEl = document.getElementById("metrics-panel");
+const godModeBarEl = document.getElementById("god-mode-bar");
+const replayBarEl = document.getElementById("replay-bar");
+const btnRelationshipsEl = document.getElementById("btn-relationships");
+const btnMetricsEl = document.getElementById("btn-metrics");
+const btnReplayEl = document.getElementById("btn-replay");
 const eventFormEl = document.getElementById("event-form");
 const eventLocationEl = document.getElementById("event-location");
 const eventTextEl = document.getElementById("event-text");
@@ -38,6 +49,7 @@ const STATUS_LABELS: Record<WsConnectionState, string> = {
 };
 
 const agentChipCache = new Map<string, CachedAgentChip>();
+let lastLiveTick: TickMessage | null = null;
 
 function isTextInputFocused(): boolean {
   const active = document.activeElement;
@@ -62,9 +74,14 @@ function updateClockDisplay(
     SimControlResponse,
     "day" | "sim_time" | "tick" | "running" | "speed"
   >,
+  isReplay = false,
 ): void {
   if (simTimeEl !== null) {
-    const stateLabel = state.running ? `${state.speed}x` : "Paused";
+    const stateLabel = isReplay
+      ? "Replay"
+      : state.running
+        ? `${state.speed}x`
+        : "Paused";
     simTimeEl.textContent = `Day ${state.day} · ${state.sim_time} · ${stateLabel}`;
   }
 
@@ -138,7 +155,9 @@ const activityFeed = new ActivityFeed(activityFeedEl);
 
 const timeControls = new TimeControls(timeControlsEl, {
   onStateChange: (state) => {
-    updateClockDisplay(state);
+    if (!replayController.isActive()) {
+      updateClockDisplay(state, false);
+    }
   },
 });
 
@@ -146,18 +165,160 @@ const agentInspector = new AgentInspector(agentInspectorEl, {
   onClose: () => {
     villageScene.setSelectedAgent(null);
     updateChipActiveStates(null);
+    stageEl?.classList.remove("inspector-open");
   },
 });
 
+const relationshipGraph = new RelationshipGraphModal(relationshipPanelEl, {
+  onSelectAgent: (agentId) => {
+    selectAgent(agentId);
+  },
+  onClose: () => {
+    syncToolButtons();
+  },
+});
+
+const metricsDashboard = new MetricsDashboardPanel(metricsPanelEl, {
+  onClose: () => {
+    syncToolButtons();
+  },
+});
+
+function applyTickToUi(
+  tickMsg: TickMessage,
+  immediate: boolean,
+  isReplay: boolean,
+): void {
+  villageScene.applyTick(tickMsg, { immediate });
+  updateClockDisplay(tickMsg, isReplay);
+
+  const selectedId = isReplay ? null : agentInspector.getSelectedAgentId();
+  updateAgentChips(tickMsg, selectedId, selectAgent);
+
+  if (!isReplay) {
+    timeControls.sync({ running: tickMsg.running, speed: tickMsg.speed });
+    agentInspector.applyTick(tickMsg);
+  }
+}
+
+const replayController = new ReplayController(replayBarEl, {
+  onEnter: () => {
+    agentInspector.close();
+    villageScene.setSelectedAgent(null);
+    updateChipActiveStates(null);
+    stageEl?.classList.remove("inspector-open");
+    villageScene.resetTransientVisuals();
+    timeControlsEl?.classList.add("hidden");
+    godModeBarEl?.classList.add("hidden");
+    activityFeed.setModeLabel("Replay Activity");
+    activityFeed.clear("Replay active — press Play or scrub timeline...");
+    syncToolButtons();
+  },
+  onResetTimeline: () => {
+    villageScene.resetTransientVisuals();
+    activityFeed.clear("Replay position jumped...");
+  },
+  onApplyTick: (msg, immediate) => {
+    applyTickToUi(msg, immediate, true);
+  },
+  onApplyDialogue: (msg) => {
+    villageScene.showDialogue(msg);
+    activityFeed.pushDialogue(msg);
+  },
+  onApplyEvent: (msg) => {
+    villageScene.showEvent(msg);
+    activityFeed.pushEvent(msg);
+  },
+  onApplyReflection: (msg) => {
+    villageScene.showReflection(msg);
+    activityFeed.pushReflection(msg);
+  },
+  onExit: () => {
+    villageScene.resetTransientVisuals();
+    villageScene.setSelectedAgent(agentInspector.getSelectedAgentId());
+    activityFeed.setModeLabel("Live Activity");
+    activityFeed.clear();
+    timeControlsEl?.classList.remove("hidden");
+    godModeBarEl?.classList.remove("hidden");
+    syncToolButtons();
+    if (lastLiveTick !== null) {
+      applyTickToUi(lastLiveTick, true, false);
+    }
+  },
+});
+
+function syncToolButtons(): void {
+  const relOpen = relationshipGraph.isOpen();
+  const metricsOpen = metricsDashboard.isOpen();
+  const replayOpen = replayController.isActive();
+
+  if (btnRelationshipsEl !== null) {
+    btnRelationshipsEl.classList.toggle("active", relOpen);
+    btnRelationshipsEl.setAttribute("aria-pressed", String(relOpen));
+  }
+
+  if (btnMetricsEl !== null) {
+    btnMetricsEl.classList.toggle("active", metricsOpen);
+    btnMetricsEl.setAttribute("aria-pressed", String(metricsOpen));
+  }
+
+  if (btnReplayEl !== null) {
+    btnReplayEl.classList.toggle("active", replayOpen);
+    btnReplayEl.setAttribute("aria-pressed", String(replayOpen));
+  }
+}
+
 function selectAgent(agentId: string): void {
   villageScene.setSelectedAgent(agentId);
+  if (replayController.isActive()) {
+    updateChipActiveStates(null);
+    return;
+  }
+
   updateChipActiveStates(agentId);
   void agentInspector.open(agentId);
+  stageEl?.classList.toggle(
+    "inspector-open",
+    agentInspector.getSelectedAgentId() !== null,
+  );
 }
 
 villageScene.setOnAgentSelect((agentId) => {
   selectAgent(agentId);
 });
+
+const handleRelationshipsClick = (): void => {
+  if (relationshipGraph.isOpen()) {
+    relationshipGraph.close();
+    return;
+  }
+  metricsDashboard.close();
+  void relationshipGraph.open();
+  syncToolButtons();
+};
+
+const handleMetricsClick = (): void => {
+  if (metricsDashboard.isOpen()) {
+    metricsDashboard.close();
+    return;
+  }
+  relationshipGraph.close();
+  void metricsDashboard.open();
+  syncToolButtons();
+};
+
+const handleReplayClick = (): void => {
+  if (replayController.isActive()) {
+    replayController.exit();
+    return;
+  }
+  void replayController.open();
+  syncToolButtons();
+};
+
+btnRelationshipsEl?.addEventListener("click", handleRelationshipsClick);
+btnMetricsEl?.addEventListener("click", handleMetricsClick);
+btnReplayEl?.addEventListener("click", handleReplayClick);
 
 const game = new Phaser.Game({
   type: Phaser.AUTO,
@@ -190,11 +351,18 @@ const unmountEventInjector = mountEventInjector({
 });
 
 const handleWindowKeyDown = (event: KeyboardEvent): void => {
-  if (
-    event.key === "Escape" &&
-    !isTextInputFocused() &&
-    agentInspector.getSelectedAgentId() !== null
-  ) {
+  if (event.key !== "Escape" || isTextInputFocused()) {
+    return;
+  }
+  if (relationshipGraph.isOpen()) {
+    relationshipGraph.close();
+    return;
+  }
+  if (metricsDashboard.isOpen()) {
+    metricsDashboard.close();
+    return;
+  }
+  if (agentInspector.getSelectedAgentId() !== null) {
     agentInspector.close();
   }
 };
@@ -205,29 +373,39 @@ const wsClient = new VillageWsClient({
     updateConnectionStatus(status);
   },
   onTick: (tickMsg) => {
-    villageScene.applyTick(tickMsg);
-    updateClockDisplay(tickMsg);
-    timeControls.sync({ running: tickMsg.running, speed: tickMsg.speed });
-    updateAgentChips(
-      tickMsg,
-      agentInspector.getSelectedAgentId(),
-      selectAgent,
-    );
-    agentInspector.applyTick(tickMsg);
+    lastLiveTick = tickMsg;
+    if (replayController.isActive()) {
+      timeControls.sync({ running: tickMsg.running, speed: tickMsg.speed });
+      return;
+    }
+    applyTickToUi(tickMsg, false, false);
   },
   onDialogue: (dialogueMsg) => {
+    relationshipGraph.handleDialogue();
+    if (replayController.isActive()) {
+      return;
+    }
     villageScene.showDialogue(dialogueMsg);
     activityFeed.pushDialogue(dialogueMsg);
     agentInspector.handleDialogue(dialogueMsg);
   },
   onEvent: (eventMsg) => {
+    if (replayController.isActive()) {
+      return;
+    }
     villageScene.showEvent(eventMsg);
     activityFeed.pushEvent(eventMsg);
   },
   onReflection: (reflectionMsg) => {
+    if (replayController.isActive()) {
+      return;
+    }
     villageScene.showReflection(reflectionMsg);
     activityFeed.pushReflection(reflectionMsg);
     agentInspector.handleReflection(reflectionMsg);
+  },
+  onMetrics: (metricsMsg) => {
+    metricsDashboard.applyMetrics(metricsMsg);
   },
 });
 
@@ -235,9 +413,15 @@ wsClient.connect();
 
 window.addEventListener("beforeunload", () => {
   window.removeEventListener("keydown", handleWindowKeyDown);
+  btnRelationshipsEl?.removeEventListener("click", handleRelationshipsClick);
+  btnMetricsEl?.removeEventListener("click", handleMetricsClick);
+  btnReplayEl?.removeEventListener("click", handleReplayClick);
   unmountEventInjector();
   timeControls.destroy();
   agentInspector.destroy();
+  relationshipGraph.destroy();
+  metricsDashboard.destroy();
+  replayController.destroy();
   agentChipCache.clear();
   wsClient.disconnect();
   game.destroy(true);

@@ -1,0 +1,61 @@
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - village_data:/app/data
+      - ./logs:/app/logs
+    environment:
+      APP_ENV: ${APP_ENV:-development}
+      SIM_TICK_SECONDS: ${SIM_TICK_SECONDS:-1.0}
+      SIM_SPEED: ${SIM_SPEED:-1}
+      SIM_SEED: ${SIM_SEED:-42}
+      SIM_AUTO_START: ${SIM_AUTO_START:-true}
+      MAP_PATH: /app/assets/map.json
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      LLM_PROVIDER: ${LLM_PROVIDER:-mock}
+      DATABASE_URL: sqlite+aiosqlite:////app/data/ai_village.db
+      REPLAY_LOG_DIR: /app/logs
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-auto}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_ROUTINE_MODEL: ${GEMINI_ROUTINE_MODEL:-gemini-2.5-flash}
+      GEMINI_PLANNING_MODEL: ${GEMINI_PLANNING_MODEL:-gemini-2.5-pro}
+      LLM_DAILY_BUDGET_USD: ${LLM_DAILY_BUDGET_USD:-0.50}
+      LLM_DAILY_TOKEN_LIMIT: ${LLM_DAILY_TOKEN_LIMIT:-250000}
+      LLM_MAX_RETRIES: ${LLM_MAX_RETRIES:-1}
+      RETRIEVAL_W_RECENCY: ${RETRIEVAL_W_RECENCY:-1.0}
+      RETRIEVAL_W_IMPORTANCE: ${RETRIEVAL_W_IMPORTANCE:-1.0}
+      RETRIEVAL_W_RELEVANCE: ${RETRIEVAL_W_RELEVANCE:-1.0}
+      RETRIEVAL_DECAY_PER_HOUR: ${RETRIEVAL_DECAY_PER_HOUR:-0.995}
+      RETRIEVAL_TOP_K: ${RETRIEVAL_TOP_K:-8}
+      REFLECTION_THRESHOLD: ${REFLECTION_THRESHOLD:-150}
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "5173:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  village_data:

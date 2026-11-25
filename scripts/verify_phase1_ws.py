@@ -127,7 +127,7 @@ async def verify_live_server(proc: subprocess.Popen[bytes]) -> tuple[list[int], 
             if not isinstance(payload, dict):
                 raise AssertionError(f"Unexpected /ws message payload: {payload!r}")
             msg_type = payload.get("type")
-            if msg_type in {"dialogue", "event"}:
+            if msg_type in {"dialogue", "event", "reflection"}:
                 continue
             if msg_type != "tick":
                 raise AssertionError(f"Unexpected /ws message payload: {payload!r}")

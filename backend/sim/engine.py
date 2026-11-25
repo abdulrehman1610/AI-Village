@@ -146,6 +146,19 @@ TickCallback = Callable[[TickPayload], Awaitable[None]]
 EventCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
 
+async def _gather_or_cancel[T](coros: Sequence[Awaitable[T]]) -> list[T]:
+    """Await all coroutines concurrently, draining child cancellations on error/cancel."""
+    tasks = [asyncio.ensure_future(coro) for coro in coros]
+    try:
+        return list(await asyncio.gather(*tasks))
+    except BaseException:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        raise
+
+
 class SimulationEngine:
     """Server-authoritative simulation orchestrating ticks, A* routing, and invariants."""
 
@@ -586,8 +599,8 @@ class SimulationEngine:
             else:
                 ordered_pairs.append((first_entity, second_entity))
 
-        outcomes = await asyncio.gather(
-            *(
+        outcomes = await _gather_or_cancel(
+            [
                 self.conversation_manager.run_conversation(
                     speaker,
                     listener,
@@ -596,7 +609,7 @@ class SimulationEngine:
                     world=self.world,
                 )
                 for speaker, listener in ordered_pairs
-            )
+            ]
         )
 
         payloads: list[dict[str, Any]] = []
@@ -632,8 +645,8 @@ class SimulationEngine:
         seen_replan_reasons = {
             agent.id: agent.replan_reason for agent in deciding_agents
         }
-        decisions = await asyncio.gather(
-            *(
+        decisions = await _gather_or_cancel(
+            [
                 self.brains[agent.id].decide(
                     clock=self.clock,
                     world=self.world,
@@ -647,7 +660,7 @@ class SimulationEngine:
                     dwell_ticks=self.dwell_ticks,
                 )
                 for agent in deciding_agents
-            )
+            ]
         )
 
         for agent, (target_location, action_text, _replanned) in zip(
@@ -689,8 +702,8 @@ class SimulationEngine:
         if not qualifying_ids:
             return []
 
-        outcomes = await asyncio.gather(
-            *(
+        outcomes = await _gather_or_cancel(
+            [
                 self.reflection_manager.run_reflection(
                     agent_id=agent_id,
                     persona=self.agents[agent_id].persona,
@@ -698,7 +711,7 @@ class SimulationEngine:
                     sim_time=self.clock.sim_time_str,
                 )
                 for agent_id in qualifying_ids
-            )
+            ]
         )
 
         payloads: list[dict[str, Any]] = []
@@ -891,18 +904,30 @@ class SimulationEngine:
         self._stop_requested = False
         self._loop_task = asyncio.create_task(self._run_loop(), name="sim-engine-loop")
 
-    async def stop_loop(self) -> None:
-        """Stop the background simulation loop and await task cancellation."""
+    async def stop_loop(self, *, graceful_timeout: float = 5.0) -> None:
+        """Stop the background simulation loop gracefully, cancelling only on timeout."""
         self._stop_requested = True
         self._wake_event.set()
         task = self._loop_task
         self._loop_task = None
-        if task is not None and not task.done():
+        if task is None or task.done():
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=graceful_timeout)
+            return
+        except TimeoutError:
             task.cancel()
             try:
                 await task
             except asyncio.CancelledError:
                 pass
+        except asyncio.CancelledError:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+            raise
 
     async def _run_loop(self) -> None:
         """Run continuous non-blocking ticks according to clock running and speed state."""

@@ -107,7 +107,7 @@ def test_websocket_streams_advancing_ticks_and_moving_agents(tmp_path: Path) -> 
             for _ in range(25):
                 frame = ws.receive_json()
                 frame_type = frame.get("type")
-                assert frame_type in {"tick", "dialogue", "event"}
+                assert frame_type in {"tick", "dialogue", "event", "reflection"}
                 if frame_type == "tick":
                     ticks.append(frame)
                     if len(ticks) == 2:
@@ -130,3 +130,106 @@ def test_websocket_streams_advancing_ticks_and_moving_agents(tmp_path: Path) -> 
         assert agent_count == 8
         assert sim_tick >= msg2["tick"]
         assert sim_tick > 0
+
+
+def test_sim_control_agent_detail_and_relationships_endpoints(tmp_path: Path) -> None:
+    db_path = tmp_path / "test_api_phase4.db"
+    app = create_app(
+        Settings(
+            sim_auto_start=False,
+            sim_tick_seconds=0.05,
+            database_url=f"sqlite+aiosqlite:///{db_path.as_posix()}",
+        )
+    )
+
+    with TestClient(app) as client:
+        for invalid_speed in (2, 0, True, False, "4"):
+            bad_resp = client.post("/sim/speed", json={"speed": invalid_speed})
+            assert bad_resp.status_code == 422
+
+        speed_resp = client.post("/sim/speed", json={"speed": 4})
+        assert speed_resp.status_code == 200
+        speed_data = speed_resp.json()
+        assert {"running", "speed", "tick", "sim_time", "day"} <= set(speed_data.keys())
+        assert speed_data["speed"] == 4
+        assert speed_data["running"] is False
+        assert speed_data["day"] >= 1
+
+        start_resp = client.post("/sim/start")
+        assert start_resp.status_code == 200
+        start_data = start_resp.json()
+        assert start_data["running"] is True
+        assert start_data["speed"] == 4
+
+        pause_resp = client.post("/sim/pause")
+        assert pause_resp.status_code == 200
+        pause_data = pause_resp.json()
+        assert pause_data["running"] is False
+        assert pause_data["speed"] == 4
+
+        unknown_resp = client.get("/agents/unknown_id")
+        assert unknown_resp.status_code == 404
+
+        maya_resp = client.get("/agents/maya")
+        assert maya_resp.status_code == 200
+        maya = maya_resp.json()
+        assert maya["id"] == "maya"
+        assert maya["name"] == "Maya"
+        assert maya["role"] == "Baker"
+        assert maya["home_location"] == "Home_Maya"
+        assert maya["current_location"] == "Home_Maya"
+        assert maya["mood"] == "calm"
+        assert maya["accumulated_importance"] >= 0
+        assert maya["reflection_threshold"] == 150
+
+        persona = maya["persona"]
+        assert persona["id"] == "maya"
+        assert persona["home_location"] == "Home_Maya"
+        assert len(persona["traits"]) >= 3
+        assert len(persona["starting_goals"]) >= 2
+
+        plan = maya["plan"]
+        assert set(plan.keys()) == {
+            "day",
+            "active_block_index",
+            "active_minute_index",
+            "hourly_focus",
+            "current_step",
+            "daily_plan",
+        }
+        assert len(plan["daily_plan"]) >= 3
+
+        assert len(maya["recent_memories"]) >= 2
+        assert len(maya["top_memories"]) >= 1
+        assert isinstance(maya["reflections"], list)
+        assert isinstance(maya["relationships"], list)
+
+        for mem in maya["recent_memories"] + maya["top_memories"] + maya["reflections"]:
+            assert "embedding" not in mem
+            assert {
+                "id",
+                "type",
+                "text",
+                "importance",
+                "created_tick",
+                "last_access_tick",
+                "cited_memory_ids",
+            } <= set(mem.keys())
+
+        rel_resp = client.get("/relationships")
+        assert rel_resp.status_code == 200
+        rel_data = rel_resp.json()
+        assert len(rel_data["nodes"]) == 8
+        assert {node["id"] for node in rel_data["nodes"]} == {
+            "maya",
+            "liam",
+            "elena",
+            "noah",
+            "clara",
+            "marcus",
+            "aria",
+            "sam",
+        }
+        for node in rel_data["nodes"]:
+            assert {"id", "name", "role", "mood"} <= set(node.keys())
+        assert isinstance(rel_data["edges"], list)

@@ -73,3 +73,14 @@ jobs:
 
       - name: Build frontend production bundle
         run: npm --prefix frontend run build
+
+  docker-compose:
+    name: Docker Compose Config Validation
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml schema and interpolation
+        run: docker compose config --quiet

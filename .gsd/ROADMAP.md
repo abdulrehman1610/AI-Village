@@ -111,6 +111,11 @@ updated: 2026-11-23T23:39:00+05:00
 **Depends on:** Phase 5
 **Requirements:** REQ-16
 
+**Plans:**
+- [ ] Plan 6.1: Package backend/frontend via Docker, Nginx reverse proxy (/ws + 8 REST prefixes), contract test, and CI compose validation (Wave 1)
+- [ ] Plan 6.2: Run 1,440-tick Day 1->2 simulation verification + empirical telemetry export, sync docs/PRD.md, and generate docs/architecture.png & docs/demo.gif (Wave 1)
+- [ ] Plan 6.3: Author docs/report.md (PRD 1/5/6/15 + empirical metrics), AGENTS.md, and README.md, and pass full Milestone v1.0 verification gate (Wave 2)
+
 ---
 
 ## Progress Summary
@@ -122,7 +127,7 @@ updated: 2026-11-23T23:39:00+05:00
 | 3 | ✅ | 8/8 | 100% |
 | 4 | ✅ | 7/7 | 100% |
 | 5 | ✅ | 7/7 | 100% |
-| 6 | 🔄 | 0/TBD | — |
+| 6 | 🔄 | 0/3 | — |
 
 ---
 

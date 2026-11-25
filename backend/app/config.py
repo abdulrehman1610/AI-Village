@@ -7,6 +7,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 DEFAULT_MAP_PATH: Path = REPO_ROOT / "frontend" / "public" / "assets" / "map.json"
 DEFAULT_DB_PATH: Path = REPO_ROOT / "backend" / "ai_village.db"
+DEFAULT_REPLAY_LOG_DIR: Path = REPO_ROOT / "logs"
 
 
 class Settings(BaseSettings):
@@ -27,6 +28,7 @@ class Settings(BaseSettings):
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
     llm_provider: str = "mock"
     database_url: str = ""
+    replay_log_dir: str = ""
     embedding_provider: str = "auto"
     gemini_api_key: str = ""
     gemini_routine_model: str = "gemini-2.5-flash"
@@ -50,6 +52,11 @@ class Settings(BaseSettings):
         """Return the configured async database URL or the canonical local SQLite URL."""
         configured = self.database_url.strip()
         return configured if configured else f"sqlite+aiosqlite:///{DEFAULT_DB_PATH.as_posix()}"
+
+    def resolved_replay_log_dir(self) -> Path:
+        """Return the configured replay log directory or the canonical logs/ path."""
+        configured = self.replay_log_dir.strip()
+        return Path(configured) if configured else DEFAULT_REPLAY_LOG_DIR
 
     def resolved_embedding_provider(self) -> Literal["mock", "local"]:
         """Resolve effective embedding provider ('mock' or 'local')."""

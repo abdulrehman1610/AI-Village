@@ -22,6 +22,32 @@
             aria-label="Simulation playback controls"
           ></div>
         </div>
+        <nav class="hud-tools" aria-label="Village views">
+          <button
+            id="btn-relationships"
+            type="button"
+            class="sim-btn hud-tool-btn"
+            aria-pressed="false"
+          >
+            Relationships
+          </button>
+          <button
+            id="btn-metrics"
+            type="button"
+            class="sim-btn hud-tool-btn"
+            aria-pressed="false"
+          >
+            Metrics
+          </button>
+          <button
+            id="btn-replay"
+            type="button"
+            class="sim-btn hud-tool-btn"
+            aria-pressed="false"
+          >
+            Replay
+          </button>
+        </nav>
         <div id="agents-bar" aria-label="Active agents"></div>
       </header>
       <main id="stage">
@@ -32,6 +58,16 @@
         ></aside>
         <div id="game-container"></div>
         <aside id="activity-feed" aria-label="Live village activity"></aside>
+        <section
+          id="relationship-panel"
+          class="drawer-panel hidden"
+          aria-label="Relationship network"
+        ></section>
+        <section
+          id="metrics-panel"
+          class="drawer-panel hidden"
+          aria-label="Cost and token dashboard"
+        ></section>
       </main>
       <section id="god-mode-bar" aria-label="God-mode event injection">
         <form id="event-form">
@@ -55,6 +91,11 @@
           ></span>
         </form>
       </section>
+      <section
+        id="replay-bar"
+        class="replay-bar hidden"
+        aria-label="Day replay controls"
+      ></section>
       <footer id="controls-hint">
         Click agent to inspect · Drag to pan · Scroll to zoom · Press C for collision grid
       </footer>

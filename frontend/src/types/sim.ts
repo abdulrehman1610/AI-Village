@@ -209,6 +209,95 @@ export interface InjectEventResponse {
   affected_agents: string[];
 }
 
+export interface PurposeMetrics {
+  purpose: string;
+  calls: number;
+  cache_hits: number;
+  tokens_in: number;
+  tokens_out: number;
+  total_tokens: number;
+  cost_est: number;
+  avg_latency_ms: number;
+}
+
+export interface ModelMetrics {
+  model: string;
+  calls: number;
+  cache_hits: number;
+  tokens_in: number;
+  tokens_out: number;
+  total_tokens: number;
+  cost_est: number;
+  avg_latency_ms: number;
+}
+
+export interface TickMetricsPoint {
+  tick: number;
+  calls: number;
+  cache_hits: number;
+  tokens_in: number;
+  tokens_out: number;
+  total_tokens: number;
+  cost_est: number;
+  avg_latency_ms: number;
+  cumulative_tokens: number;
+  cumulative_cost_est: number;
+}
+
+export interface MetricsSnapshot {
+  tick: number;
+  sim_time: string;
+  day: number;
+  total_calls: number;
+  cache_hits: number;
+  cache_hit_rate: number;
+  tokens_in: number;
+  tokens_out: number;
+  total_tokens: number;
+  cost_est: number;
+  avg_latency_ms: number;
+  max_latency_ms: number;
+  daily_budget_usd: number;
+  daily_token_limit: number;
+  budget_day: number;
+  budget_tokens_used: number;
+  budget_cost_used: number;
+  by_purpose: PurposeMetrics[];
+  by_model: ModelMetrics[];
+  history: TickMetricsPoint[];
+}
+
+export type MetricsMessage = MetricsSnapshot & { type: "metrics" };
+
+export interface ReplayDaySummary {
+  day: number;
+  tick_count: number;
+  frame_count: number;
+  first_tick: number;
+  last_tick: number;
+  first_sim_time: string;
+  last_sim_time: string;
+}
+
+export interface ReplayDaysResponse {
+  current_day: number;
+  days: ReplayDaySummary[];
+}
+
+export type ReplayFrame =
+  | TickMessage
+  | DialogueMessage
+  | EventMessage
+  | ReflectionMessage;
+
+export interface ReplayLogResponse {
+  day: number;
+  tick_count: number;
+  first_tick: number | null;
+  last_tick: number | null;
+  frames: ReplayFrame[];
+}
+
 export type WsConnectionState =
   | "connecting"
   | "connected"
@@ -524,5 +613,136 @@ export function isRelationshipsResponse(data: unknown): data is RelationshipsRes
     data.nodes.every(isRelationshipNode) &&
     Array.isArray(data.edges) &&
     data.edges.every(isRelationshipEdge)
+  );
+}
+
+function hasCallMetricsFields(data: Record<string, unknown>): boolean {
+  return (
+    isInteger(data.calls) &&
+    isInteger(data.cache_hits) &&
+    isInteger(data.tokens_in) &&
+    isInteger(data.tokens_out) &&
+    isInteger(data.total_tokens) &&
+    isFiniteNumber(data.cost_est) &&
+    isFiniteNumber(data.avg_latency_ms)
+  );
+}
+
+/** Validate that an unknown JSON value matches the backend PurposeMetrics schema. */
+export function isPurposeMetrics(data: unknown): data is PurposeMetrics {
+  if (!isRecord(data)) {
+    return false;
+  }
+  return typeof data.purpose === "string" && hasCallMetricsFields(data);
+}
+
+/** Validate that an unknown JSON value matches the backend ModelMetrics schema. */
+export function isModelMetrics(data: unknown): data is ModelMetrics {
+  if (!isRecord(data)) {
+    return false;
+  }
+  return typeof data.model === "string" && hasCallMetricsFields(data);
+}
+
+/** Validate that an unknown JSON value matches the backend TickMetricsPoint schema. */
+export function isTickMetricsPoint(data: unknown): data is TickMetricsPoint {
+  if (!isRecord(data)) {
+    return false;
+  }
+  return (
+    isInteger(data.tick) &&
+    hasCallMetricsFields(data) &&
+    isInteger(data.cumulative_tokens) &&
+    isFiniteNumber(data.cumulative_cost_est)
+  );
+}
+
+/** Validate that an unknown JSON value matches the backend MetricsSnapshot schema. */
+export function isMetricsSnapshot(data: unknown): data is MetricsSnapshot {
+  if (!isRecord(data)) {
+    return false;
+  }
+  return (
+    isInteger(data.tick) &&
+    typeof data.sim_time === "string" &&
+    isInteger(data.day) &&
+    isInteger(data.total_calls) &&
+    isInteger(data.cache_hits) &&
+    isFiniteNumber(data.cache_hit_rate) &&
+    isInteger(data.tokens_in) &&
+    isInteger(data.tokens_out) &&
+    isInteger(data.total_tokens) &&
+    isFiniteNumber(data.cost_est) &&
+    isFiniteNumber(data.avg_latency_ms) &&
+    isFiniteNumber(data.max_latency_ms) &&
+    isFiniteNumber(data.daily_budget_usd) &&
+    isInteger(data.daily_token_limit) &&
+    isInteger(data.budget_day) &&
+    isInteger(data.budget_tokens_used) &&
+    isFiniteNumber(data.budget_cost_used) &&
+    Array.isArray(data.by_purpose) &&
+    data.by_purpose.every(isPurposeMetrics) &&
+    Array.isArray(data.by_model) &&
+    data.by_model.every(isModelMetrics) &&
+    Array.isArray(data.history) &&
+    data.history.every(isTickMetricsPoint)
+  );
+}
+
+/** Validate that an unknown JSON value matches the WebSocket metrics frame schema. */
+export function isMetricsMessage(data: unknown): data is MetricsMessage {
+  return isRecord(data) && data.type === "metrics" && isMetricsSnapshot(data);
+}
+
+/** Validate that an unknown JSON value matches the backend ReplayDaySummary schema. */
+export function isReplayDaySummary(data: unknown): data is ReplayDaySummary {
+  if (!isRecord(data)) {
+    return false;
+  }
+  return (
+    isInteger(data.day) &&
+    isInteger(data.tick_count) &&
+    isInteger(data.frame_count) &&
+    isInteger(data.first_tick) &&
+    isInteger(data.last_tick) &&
+    typeof data.first_sim_time === "string" &&
+    typeof data.last_sim_time === "string"
+  );
+}
+
+/** Validate that an unknown JSON value matches the backend GET /replay schema. */
+export function isReplayDaysResponse(data: unknown): data is ReplayDaysResponse {
+  if (!isRecord(data)) {
+    return false;
+  }
+  return (
+    isInteger(data.current_day) &&
+    Array.isArray(data.days) &&
+    data.days.every(isReplayDaySummary)
+  );
+}
+
+/** Validate that an unknown JSON value is one of the allowed replay frame types. */
+export function isReplayFrame(data: unknown): data is ReplayFrame {
+  return (
+    isTickMessage(data) ||
+    isDialogueMessage(data) ||
+    isEventMessage(data) ||
+    isReflectionMessage(data)
+  );
+}
+
+/** Validate that an unknown JSON value matches the backend GET /replay/{day} schema. */
+export function isReplayLogResponse(data: unknown): data is ReplayLogResponse {
+  if (!isRecord(data)) {
+    return false;
+  }
+  return (
+    isInteger(data.day) &&
+    isInteger(data.tick_count) &&
+    isNullableInteger(data.first_tick) &&
+    isNullableInteger(data.last_tick) &&
+    Array.isArray(data.frames) &&
+    data.frames.every(isReplayFrame)
   );
 }

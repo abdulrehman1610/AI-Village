@@ -1146,3 +1146,229 @@ async def test_conversation_summary_prompt_prior_context_and_moods() -> None:
     assert "Market fountain overflowed with lavender soap" in urgent_summary.summary
     assert urgent_summary.speaker_a_mood == "concerned"
     assert urgent_summary.speaker_b_mood == "alert"
+
+
+async def test_gateway_metrics_snapshot_empty_db_returns_zeros(db: Database) -> None:
+    """get_metrics_snapshot on an empty DB returns zeroed scalars and empty lists."""
+    gateway = LLMGateway(
+        provider=MockProvider(seed=42),
+        db=db,
+        daily_budget_usd=0.75,
+        daily_token_limit=120_000,
+    )
+    snapshot = await gateway.get_metrics_snapshot(
+        tick=15,
+        sim_time="Day 1 06:15",
+        day=1,
+    )
+
+    assert gateway.total_recorded_calls == 0
+    assert snapshot.tick == 15
+    assert snapshot.sim_time == "Day 1 06:15"
+    assert snapshot.day == 1
+    assert snapshot.total_calls == 0
+    assert snapshot.cache_hits == 0
+    assert snapshot.cache_hit_rate == 0.0
+    assert snapshot.tokens_in == 0
+    assert snapshot.tokens_out == 0
+    assert snapshot.total_tokens == 0
+    assert snapshot.cost_est == 0.0
+    assert snapshot.avg_latency_ms == 0.0
+    assert snapshot.max_latency_ms == 0.0
+    assert snapshot.daily_budget_usd == 0.75
+    assert snapshot.daily_token_limit == 120_000
+    assert snapshot.budget_day == 1
+    assert snapshot.budget_tokens_used == 0
+    assert snapshot.budget_cost_used == 0.0
+    assert snapshot.by_purpose == []
+    assert snapshot.by_model == []
+    assert snapshot.history == []
+
+
+async def test_gateway_metrics_snapshot_aggregates_db_and_memory_identically(
+    db: Database,
+) -> None:
+    """get_metrics_snapshot accurately aggregates DB and db=None fallback across calls."""
+    mock = MockProvider(seed=42)
+    daily_raw = await mock.generate_raw(
+        prompt="Generate a daily plan for Maya at Home_Maya.",
+        response_model=DailyPlanResponse,
+    )
+
+    def _build_responses() -> list[ProviderResult]:
+        return [
+            ProviderResult(
+                raw_text=daily_raw.raw_text,
+                model="gemini-2.5-pro",
+                tokens_in=200,
+                tokens_out=100,
+            ),
+            ProviderResult(
+                raw_text="{invalid_json",
+                model="gemini-2.5-flash",
+                tokens_in=40,
+                tokens_out=5,
+            ),
+            ProviderResult(
+                raw_text='{"initiate": true, "reason": "Friendly", "opening_line": "Morning!"}',
+                model="gemini-2.5-flash",
+                tokens_in=60,
+                tokens_out=20,
+            ),
+            ProviderResult(
+                raw_text='{"ratings": [7]}',
+                model="gemini-2.5-flash",
+                tokens_in=50,
+                tokens_out=10,
+            ),
+        ]
+
+    async def _run_sequence(gateway: LLMGateway) -> None:
+        await gateway.generate_daily_plan(
+            "Generate a daily plan for Maya at Home_Maya.",
+            tick=10,
+            agent_id="maya",
+        )
+        await gateway.decide_conversation(
+            "Should Maya greet Liam at the Cafe?",
+            tick=10,
+            agent_id="maya",
+        )
+        # Repeat prompt triggers prompt cache hit on tick 20.
+        await gateway.decide_conversation(
+            "Should Maya greet Liam at the Cafe?",
+            tick=20,
+            agent_id="maya",
+        )
+        # Tick 1450 falls on budget_day 2.
+        await gateway.rate_importance_batch(
+            ["Market fountain overflowed"],
+            tick=1450,
+            agent_id="maya",
+        )
+
+    db_gateway = LLMGateway(
+        provider=ScriptedProvider(_build_responses()),
+        db=db,
+        routine_model="gemini-2.5-flash",
+        planning_model="gemini-2.5-pro",
+        max_retries=1,
+    )
+    mem_gateway = LLMGateway(
+        provider=ScriptedProvider(_build_responses()),
+        db=None,
+        routine_model="gemini-2.5-flash",
+        planning_model="gemini-2.5-pro",
+        max_retries=1,
+    )
+
+    await _run_sequence(db_gateway)
+    await _run_sequence(mem_gateway)
+
+    assert db_gateway.total_recorded_calls == 5
+    assert mem_gateway.total_recorded_calls == 5
+
+    db_snapshot = await db_gateway.get_metrics_snapshot(
+        tick=20,
+        sim_time="Day 1 06:20",
+        day=1,
+    )
+    mem_snapshot = await mem_gateway.get_metrics_snapshot(
+        tick=20,
+        sim_time="Day 1 06:20",
+        day=1,
+    )
+
+    async with db.session() as session:
+        rows = list(
+            (await session.exec(select(LLMCallRecord).order_by(col(LLMCallRecord.id)))).all()
+        )
+    assert len(rows) == 5
+
+    expected_cost = (
+        estimate_cost_usd("gemini-2.5-pro", 200, 100)
+        + estimate_cost_usd("gemini-2.5-flash", 40, 5)
+        + estimate_cost_usd("gemini-2.5-flash", 60, 20)
+        + estimate_cost_usd("gemini-2.5-flash", 50, 10)
+    )
+    expected_day1_cost = expected_cost - estimate_cost_usd("gemini-2.5-flash", 50, 10)
+
+    for snapshot in (db_snapshot, mem_snapshot):
+        assert snapshot.tick == 20
+        assert snapshot.sim_time == "Day 1 06:20"
+        assert snapshot.day == 1
+        assert snapshot.total_calls == 5
+        assert snapshot.cache_hits == 1
+        assert snapshot.cache_hit_rate == pytest.approx(0.2)
+        assert snapshot.tokens_in == 350
+        assert snapshot.tokens_out == 135
+        assert snapshot.total_tokens == 485
+        assert snapshot.cost_est == pytest.approx(expected_cost)
+        assert snapshot.avg_latency_ms >= 0.0
+        assert snapshot.max_latency_ms >= snapshot.avg_latency_ms
+        assert snapshot.budget_day == 1
+        assert snapshot.budget_tokens_used == 425
+        assert snapshot.budget_cost_used == pytest.approx(expected_day1_cost)
+
+        assert [item.purpose for item in snapshot.by_purpose] == [
+            "conversation_decide",
+            "daily_plan",
+            "importance_batch",
+        ]
+        convo_metrics, plan_metrics, imp_metrics = snapshot.by_purpose
+        assert (convo_metrics.calls, convo_metrics.cache_hits, convo_metrics.total_tokens) == (
+            3,
+            1,
+            125,
+        )
+        assert (plan_metrics.calls, plan_metrics.cache_hits, plan_metrics.total_tokens) == (
+            1,
+            0,
+            300,
+        )
+        assert (imp_metrics.calls, imp_metrics.cache_hits, imp_metrics.total_tokens) == (1, 0, 60)
+
+        assert [item.model for item in snapshot.by_model] == [
+            "gemini-2.5-flash",
+            "gemini-2.5-pro",
+        ]
+        flash_metrics, pro_metrics = snapshot.by_model
+        assert (flash_metrics.calls, flash_metrics.cache_hits, flash_metrics.total_tokens) == (
+            4,
+            1,
+            185,
+        )
+        assert (pro_metrics.calls, pro_metrics.cache_hits, pro_metrics.total_tokens) == (1, 0, 300)
+
+        assert [point.tick for point in snapshot.history] == [10, 20, 1450]
+        p10, p20, p1450 = snapshot.history
+        assert (p10.calls, p10.total_tokens, p10.cumulative_tokens) == (3, 425, 425)
+        assert (p20.calls, p20.cache_hits, p20.total_tokens, p20.cumulative_tokens) == (
+            1,
+            1,
+            0,
+            425,
+        )
+        assert (p1450.calls, p1450.total_tokens, p1450.cumulative_tokens) == (1, 60, 485)
+        assert p1450.cumulative_cost_est == pytest.approx(expected_cost)
+
+    # DB latency aggregates match persisted SQLite rows exactly.
+    db_latencies = [row.latency_ms for row in rows]
+    assert db_snapshot.avg_latency_ms == pytest.approx(sum(db_latencies) / len(db_latencies))
+    assert db_snapshot.max_latency_ms == pytest.approx(max(db_latencies))
+
+    # Slicing history keeps cumulative totals intact and updates budget_day for tick=1450.
+    sliced_snapshot = await db_gateway.get_metrics_snapshot(
+        tick=1450,
+        sim_time="Day 2 06:10",
+        day=2,
+        max_history_points=2,
+    )
+    assert [point.tick for point in sliced_snapshot.history] == [20, 1450]
+    assert sliced_snapshot.history[-1].cumulative_tokens == 485
+    assert sliced_snapshot.history[-1].cumulative_cost_est == pytest.approx(expected_cost)
+    assert sliced_snapshot.budget_day == 2
+    assert sliced_snapshot.budget_tokens_used == 60
+    assert sliced_snapshot.budget_cost_used == pytest.approx(
+        estimate_cost_usd("gemini-2.5-flash", 50, 10)
+    )
